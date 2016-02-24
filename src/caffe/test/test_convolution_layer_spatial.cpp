@@ -1,4 +1,3 @@
-#ifdef USE_OCL
 #include <cstring>
 #include <vector>
 
@@ -13,9 +12,6 @@
 #include "caffe/test/test_gradient_check_util.hpp"
 
 namespace caffe {
-
-#ifndef CPU_ONLY
-#ifdef USE_OCL
 
 // Reference convolution for checking results:
 // accumulate through explicit loops over input, output, and filters.
@@ -750,8 +746,4 @@ TYPED_TEST(ConvolutionLayerTest_Spatial, TestGradientGroup_Spatial) {
       this->blob_top_vec_);
 }
 
-#endif
-#endif
-
 }  // namespace caffe
-#endif
