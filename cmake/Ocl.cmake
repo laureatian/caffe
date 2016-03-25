@@ -24,12 +24,12 @@ if(NOT HAS_OpenCL)
   return()
 endif()
 
-detect_lib(clBLAS clBLAS.h)
-if(NOT HAS_clBLAS)
-  set(USE_OCL OFF)
-  message(WARNING "-- clBLAS is not detected by cmake. Building without USE_OCL...")
-  return()
-endif()
+#detect_lib(clBLAS clBLAS.h)
+#if(NOT HAS_clBLAS)
+#  set(USE_OCL OFF)
+#  message(WARNING "-- clBLAS is not detected by cmake. Building without USE_OCL...")
+#  return()
+#endif()
 
 if(USE_FFT)
   # Detect clfft libraries.

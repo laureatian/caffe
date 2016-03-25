@@ -154,6 +154,14 @@ if(BUILD_python)
   endif()
 endif()
 
+find_package(ISAAC)
+if (NOT ISAAC_FOUND)
+  message(FATAL_ERROR "ISAAC required but not found.")
+endif()
+# include_directories(SYSTEM ${CLBLAS_INCLUDE_DIR})
+list(APPEND Caffe_LINKER_LIBS ${ISAAC_LIBRARY})
+set(HAVE_ISAAC TRUE)
+
 # ---[ Matlab
 if(BUILD_matlab)
   find_package(MatlabMex)
