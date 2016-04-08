@@ -1,7 +1,7 @@
 #include <vector>
 
 #include "caffe/layers/conv_layer.hpp"
-
+#include "caffe/util/benchmark.hpp"
 namespace caffe {
 
 template<typename Dtype>
@@ -26,6 +26,8 @@ template<typename Dtype>
 void ConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
                                           const vector<Blob<Dtype>*>& top) {
   const Dtype* weight = this->blobs_[0]->cpu_data();
+  caffe::Timer total_timer;
+  //total_timer.Start();
   for (int_tp i = 0; i < bottom.size(); ++i) {
     const Dtype* bottom_data = bottom[i]->cpu_data();
     Dtype* top_data = top[i]->mutable_cpu_data();
@@ -38,6 +40,8 @@ void ConvolutionLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       }
     }
   }
+  //total_timer.Stop();
+  //std::cout << "Total Time(CPU): " << total_timer.MicroSeconds() << " ms." << std::endl;
 }
 
 template<typename Dtype>

@@ -55,6 +55,12 @@ class BaseConvolutionLayer : public Layer<Dtype> {
   void forward_gpu_gemm(const Dtype* col_input, const int_tp col_input_off,
                         const Dtype* weights, Dtype* output,
                         const int_tp output_off, bool skip_im2col = false);
+  void forward_hybrid_gemm(const Dtype* input,
+                                                     const int_tp input_off,
+                                                     const Dtype* weights,
+                                                     Dtype* output,
+                                                     const int_tp output_off,
+                                                     bool skip_im2col);
   void forward_gpu_bias(Dtype* output, const int_tp output_off,
                         const Dtype* bias);
   void backward_gpu_gemm(const Dtype* input, const int_tp input_off,

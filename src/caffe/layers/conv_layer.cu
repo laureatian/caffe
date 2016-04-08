@@ -8,11 +8,13 @@
 #include "caffe/greentea/greentea_math_functions.hpp"
 #endif
 
+#include "caffe/util/benchmark.hpp"
 namespace caffe {
-
+#define HYBRID
 template <typename Dtype>
 void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
+#ifndef HYBRID
   const Dtype* weight = this->blobs_[0]->gpu_data();
   for (int_tp i = 0; i < bottom.size(); ++i) {
     const Dtype* bottom_data = bottom[i]->gpu_data();
@@ -32,6 +34,60 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // Multi queue execution, finish all queues
     this->device_->FinishQueues();
   }
+#else
+    const Dtype* weight_gpu = this->blobs_[0]->gpu_data();
+    const Dtype* weight_cpu = this->blobs_[0]->cpu_data();
+    const auto weight_shape = this->blobs_[0]->shape();
+    assert(weight_shape.size() == 4);
+    const uint output_channels = weight_shape[0];
+    const uint hybrid_offset = (output_channels+1)*4/5;
+
+    const uint weight_dim = weight_shape[1]*weight_shape[2]*weight_shape[3];
+    //caffe::Timer total_timer;
+    //total_timer.Start();
+    if(hybrid_offset != output_channels) {
+        for (int_tp i = 0; i < bottom.size(); ++i) {
+          const Dtype* bottom_data = bottom[i]->gpu_data();
+          Dtype* top_data = top[i]->mutable_gpu_data();
+          // Multi queue execution, all previous work needs to be done first
+          this->device_->FinishQueues();
+          for (int_tp n = 0; n < this->num_; ++n) {
+            // Multi queue execution, go through work queues
+            this->device_->SwitchQueue(n);
+            this->forward_gpu_gemm(bottom_data, n * this->bottom_dim_, weight_gpu,
+                top_data, n * this->top_dim_);
+            if (this->bias_term_) {
+              const Dtype* bias = this->blobs_[1]->gpu_data();
+              this->forward_gpu_bias(top_data, n * this->top_dim_, bias);
+            }
+          }
+          // Multi queue execution, finish all queues
+          this->device_->FinishQueues();
+        }
+    } else {
+        for (int_tp i = 0; i < bottom.size(); ++i) {
+          const Dtype* bottom_data = bottom[i]->gpu_data();
+          Dtype* top_data = top[i]->mutable_gpu_data();
+          // Multi queue execution, all previous work needs to be done first
+          this->device_->FinishQueues();
+          for (int_tp n = 0; n < this->num_; ++n) {
+            // Multi queue execution, go through work queues
+            this->device_->SwitchQueue(n);
+            this->forward_gpu_gemm(bottom_data, n * this->bottom_dim_, weight_gpu,
+                top_data, n * this->top_dim_);
+            if (this->bias_term_) {
+              const Dtype* bias = this->blobs_[1]->gpu_data();
+              this->forward_gpu_bias(top_data, n * this->top_dim_, bias);
+            }
+          }
+          // Multi queue execution, finish all queues
+          this->device_->FinishQueues();
+        }
+    }
+    //total_timer.Stop();
+    //std::cout << "Total Time(GPU): " << total_timer.MilliSeconds() << " ms." << std::endl;
+
+#endif
 }
 
 template <typename Dtype>

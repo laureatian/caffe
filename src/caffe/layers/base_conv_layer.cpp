@@ -408,6 +408,54 @@ void BaseConvolutionLayer<Dtype>::forward_gpu_gemm(const Dtype* input,
 }
 
 template<typename Dtype>
+void BaseConvolutionLayer<Dtype>::forward_hybrid_gemm(const Dtype* input,
+                                                   const int_tp input_off,
+                                                   const Dtype* weights,
+                                                   Dtype* output,
+                                                   const int_tp output_off,
+                                                   bool skip_im2col) {
+  const Dtype* col_buff = input;
+  if (this->device_->backend() == BACKEND_CUDA) {
+#ifdef USE_CUDA
+    if (!is_1x1_) {
+      if (!skip_im2col) {
+        conv_im2col_gpu(input + input_off, col_buffer()->mutable_gpu_data());
+      }
+      col_buff = col_buffer()->gpu_data();
+    }
+    for (int_tp g = 0; g < group_; ++g) {
+      caffe_gpu_gemm<Dtype>(
+          CblasNoTrans, CblasNoTrans, conv_out_channels_ / group_,
+          conv_out_spatial_dim_, kernel_dim_, (Dtype) 1.,
+          weights + weight_offset_ * g,
+          col_buff + (is_1x1_ ? input_off : 0) + col_offset_ * g, (Dtype) 0.,
+          output + output_off + output_offset_ * g);
+    }
+#endif  // USE_CUDA
+  } else {
+#ifdef USE_GREENTEA
+    if (!is_1x1_) {
+      if (!skip_im2col) {
+        greentea_conv_im2col_gpu(input, input_off,
+                                 col_buffer()->mutable_gpu_data(), 0);
+      }
+      col_buff = col_buffer()->gpu_data();
+    }
+    for (int_tp g = 0; g < group_; ++g) {
+      greentea_gpu_gemm<Dtype>(this->device_->id(), CblasNoTrans,
+                               CblasNoTrans, conv_out_channels_ / group_,
+                               conv_out_spatial_dim_, kernel_dim_,
+                               (Dtype) 1., (cl_mem) weights, weight_offset_ * g,
+                               (cl_mem) col_buff,
+                               (is_1x1_ ? input_off : 0) + col_offset_ * g,
+                               (Dtype) 0., (cl_mem) output,
+                               output_off + output_offset_ * g);
+    }
+#endif  // USE_GREENTEA
+  }
+}
+
+template<typename Dtype>
 void BaseConvolutionLayer<Dtype>::forward_gpu_bias(Dtype* output,
                                                    const int_tp output_off,
                                                    const Dtype* bias) {
