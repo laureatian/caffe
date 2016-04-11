@@ -237,7 +237,7 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid, TestSimpleConvolution) {
       layer_param.mutable_convolution_param();
   convolution_param->add_kernel_size(5);
   convolution_param->add_stride(1);
-  convolution_param->set_num_output(10);
+  convolution_param->set_num_output(100);
   convolution_param->mutable_weight_filler()->set_type("gaussian");
   convolution_param->mutable_bias_filler()->set_type("constant");
   convolution_param->mutable_bias_filler()->set_value(0.1);

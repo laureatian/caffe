@@ -11,7 +11,7 @@
 #include "caffe/greentea/greentea_im2col.hpp"
 #include "caffe/greentea/greentea_math_functions.hpp"
 #endif
-
+#include <future>
 namespace caffe {
 
 template<typename Dtype>
@@ -407,14 +407,27 @@ void BaseConvolutionLayer<Dtype>::forward_gpu_gemm(const Dtype* input,
   }
 }
 
+
 template<typename Dtype>
-void BaseConvolutionLayer<Dtype>::forward_hybrid_gemm(const Dtype* input,
-                                                   const int_tp input_off,
-                                                   const Dtype* weights,
-                                                   Dtype* output,
-                                                   const int_tp output_off,
-                                                   bool skip_im2col) {
+Dtype* caffe_cpu_gemm_get(const CBLAS_TRANSPOSE TransA, const CBLAS_TRANSPOSE TransB,
+                    const int_tp M, const int_tp N, const int_tp K,
+                    const Dtype alpha, const Dtype* A, const Dtype* B,
+                    const Dtype beta, Dtype* C)
+{
+  caffe_cpu_gemm<Dtype>(TransA, TransB, M, N, K, alpha, A, B,
+                        beta, C);
+  return C;
+}
+
+template<typename Dtype>
+void BaseConvolutionLayer<Dtype>::forward_hybrid_gemm (const Dtype* input,
+                           const int_tp input_off,
+                           const Dtype* weights_gpu, const Dtype* weights_cpu,
+                           const uint hybrid_offset, const uint output_channels,
+                           Dtype* output_gpu, Dtype* output_cpu,
+                           const int_tp output_off, bool skip_im2col) {
   const Dtype* col_buff = input;
+  const Dtype* col_buff_cpu = 0;
   if (this->device_->backend() == BACKEND_CUDA) {
 #ifdef USE_CUDA
     if (!is_1x1_) {
@@ -427,9 +440,9 @@ void BaseConvolutionLayer<Dtype>::forward_hybrid_gemm(const Dtype* input,
       caffe_gpu_gemm<Dtype>(
           CblasNoTrans, CblasNoTrans, conv_out_channels_ / group_,
           conv_out_spatial_dim_, kernel_dim_, (Dtype) 1.,
-          weights + weight_offset_ * g,
+          weights_gpu + weight_offset_ * g,
           col_buff + (is_1x1_ ? input_off : 0) + col_offset_ * g, (Dtype) 0.,
-          output + output_off + output_offset_ * g);
+          output_gpu + output_off + output_offset_ * g);
     }
 #endif  // USE_CUDA
   } else {
@@ -440,16 +453,41 @@ void BaseConvolutionLayer<Dtype>::forward_hybrid_gemm(const Dtype* input,
                                  col_buffer()->mutable_gpu_data(), 0);
       }
       col_buff = col_buffer()->gpu_data();
+      col_buff_cpu = col_buffer()->cpu_data();
     }
-    for (int_tp g = 0; g < group_; ++g) {
-      greentea_gpu_gemm<Dtype>(this->device_->id(), CblasNoTrans,
-                               CblasNoTrans, conv_out_channels_ / group_,
-                               conv_out_spatial_dim_, kernel_dim_,
-                               (Dtype) 1., (cl_mem) weights, weight_offset_ * g,
-                               (cl_mem) col_buff,
-                               (is_1x1_ ? input_off : 0) + col_offset_ * g,
-                               (Dtype) 0., (cl_mem) output,
-                               output_off + output_offset_ * g);
+    if(group_ == 1) {
+        for (int_tp g = 0; g < group_; ++g) {
+          std::future <Dtype*> future_cpu = std::async(caffe_cpu_gemm_get<Dtype>, CblasNoTrans, CblasNoTrans,
+                                                       output_channels-hybrid_offset, conv_out_spatial_dim_,
+                                                       kernel_dim_, (Dtype) 1., weights_cpu + weight_offset_ * g,
+                                                       col_buff_cpu + col_offset_ * g, (Dtype) 0.,
+                                                       output_cpu);
+          greentea_gpu_gemm<Dtype>(this->device_->id(), CblasNoTrans,
+                                   CblasNoTrans, hybrid_offset/*conv_out_channels_ / group_*/,
+                                   conv_out_spatial_dim_, kernel_dim_,
+                                   (Dtype) 1., (cl_mem) weights_gpu, weight_offset_ * g,
+                                   (cl_mem) col_buff,
+                                   (is_1x1_ ? input_off : 0) + col_offset_ * g,
+                                   (Dtype) 0., (cl_mem) output_gpu,
+                                   output_off + output_offset_ * g);
+          output_cpu = future_cpu.get();
+          viennacl::ocl::context &ctx = viennacl::ocl::get_context(
+              this->device_->id());
+          greentea_copy<Dtype>((output_channels-hybrid_offset)*conv_out_spatial_dim_, output_cpu, (cl_mem) output_gpu,
+                               output_off + output_offset_ * g + hybrid_offset*conv_out_spatial_dim_, &ctx);
+        }
+    } else {
+        for (int_tp g = 0; g < group_; ++g) {
+          greentea_gpu_gemm<Dtype>(this->device_->id(), CblasNoTrans,
+                                     CblasNoTrans, conv_out_channels_ / group_,
+                                     conv_out_spatial_dim_, kernel_dim_,
+                                     (Dtype) 1., (cl_mem) weights_gpu, weight_offset_ * g,
+                                     (cl_mem) col_buff,
+                                     (is_1x1_ ? input_off : 0) + col_offset_ * g,
+                                     (Dtype) 0., (cl_mem) output_gpu,
+                                     output_off + output_offset_ * g);
+        }
+
     }
 #endif  // USE_GREENTEA
   }

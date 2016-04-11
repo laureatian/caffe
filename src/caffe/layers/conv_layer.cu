@@ -40,30 +40,38 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     const auto weight_shape = this->blobs_[0]->shape();
     assert(weight_shape.size() == 4);
     const uint output_channels = weight_shape[0];
-    const uint hybrid_offset = (output_channels+1)*4/5;
+    const uint hybrid_offset = (output_channels+1)*80/100;
 
     const uint weight_dim = weight_shape[1]*weight_shape[2]*weight_shape[3];
-    //caffe::Timer total_timer;
-    //total_timer.Start();
+    caffe::Timer total_timer;
+    total_timer.Start();
     if(hybrid_offset != output_channels) {
+        const auto top_shape = top[0]->shape();
+        uint top_image_dim = top_shape[2]*top_shape[3];
+        uint cpu_channels = output_channels - hybrid_offset;
+        Dtype* top_cpu_data = new Dtype[top_image_dim * cpu_channels];// = top[i]->mutable_cpu_data();
         for (int_tp i = 0; i < bottom.size(); ++i) {
-          const Dtype* bottom_data = bottom[i]->gpu_data();
-          Dtype* top_data = top[i]->mutable_gpu_data();
+          const Dtype* bottom_gpu_data = bottom[i]->gpu_data();
+          Dtype* top_gpu_data = top[i]->mutable_gpu_data();
+          //const Dtype
+          weight_cpu += hybrid_offset*weight_dim;
           // Multi queue execution, all previous work needs to be done first
           this->device_->FinishQueues();
           for (int_tp n = 0; n < this->num_; ++n) {
             // Multi queue execution, go through work queues
             this->device_->SwitchQueue(n);
-            this->forward_gpu_gemm(bottom_data, n * this->bottom_dim_, weight_gpu,
-                top_data, n * this->top_dim_);
+            this->forward_hybrid_gemm(bottom_gpu_data, n * this->bottom_dim_,
+                                      weight_gpu, weight_cpu, hybrid_offset, output_channels,
+                top_gpu_data, top_cpu_data, n * this->top_dim_);
             if (this->bias_term_) {
               const Dtype* bias = this->blobs_[1]->gpu_data();
-              this->forward_gpu_bias(top_data, n * this->top_dim_, bias);
+              this->forward_gpu_bias(top_gpu_data, n * this->top_dim_, bias);
             }
           }
           // Multi queue execution, finish all queues
           this->device_->FinishQueues();
         }
+        delete [] top_cpu_data;
     } else {
         for (int_tp i = 0; i < bottom.size(); ++i) {
           const Dtype* bottom_data = bottom[i]->gpu_data();
@@ -84,8 +92,8 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
           this->device_->FinishQueues();
         }
     }
-    //total_timer.Stop();
-    //std::cout << "Total Time(GPU): " << total_timer.MilliSeconds() << " ms." << std::endl;
+    total_timer.Stop();
+    std::cout << "Total Time(Hybrid): " << total_timer.MilliSeconds() << " ms." << std::endl;
 
 #endif
 }
