@@ -10,6 +10,7 @@
 
 #include "caffe/layers/base_conv_layer.hpp"
 
+#define HYBRID
 namespace caffe {
 
 template<typename Dtype>
@@ -186,7 +187,6 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
              const vector<Blob<Dtype>*>& top, caffe::Backend backend);
 #endif
 #endif
-
   const Dtype* bottom_data;
   Dtype* top_data;
   Dtype* col_data;
