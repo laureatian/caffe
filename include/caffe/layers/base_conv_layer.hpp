@@ -38,6 +38,12 @@ class BaseConvolutionLayer : public Layer<Dtype> {
   virtual inline bool EqualNumBottomTopBlobs() const {
     return true;
   }
+  void forward_hybrid_conv(const Dtype* input,
+                             const Dtype* weights,
+                             Dtype* output,
+                             const Dtype* bias,
+                             const uint channels,
+                             bool skip_im2col = false);
 
  protected:
   // Helper functions that abstract away the column buffer and gemm arguments.
@@ -61,6 +67,7 @@ class BaseConvolutionLayer : public Layer<Dtype> {
                            const uint hybrid_offset, const uint output_channels,
                            Dtype* output_gpu, Dtype* output_cpu,
                            const int_tp output_off, bool skip_im2col = false);
+
   void forward_gpu_bias(Dtype* output, const int_tp output_off,
                         const Dtype* bias);
   void backward_gpu_gemm(const Dtype* input, const int_tp input_off,

@@ -161,6 +161,10 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
                                   const vector<Blob<Dtype>*>& top, int_tp index,
                                   int_tp numImages,
                                   kernelConfig* config);
+  virtual cl_int convolve_hybrid(const vector<Blob<float>*>& bottom,
+                                 const vector<Blob<float>*>& top,
+                                 int_tp index,
+                                 int_tp numImages, kernelConfig* config);
   virtual float timed_convolve(const vector<Blob<Dtype>*>& bottom,
                                const vector<Blob<Dtype>*>& top, int_tp index,
                                int_tp numImages,

@@ -313,6 +313,36 @@ void BaseConvolutionLayer<Dtype>::forward_cpu_bias(Dtype* output,
 }
 
 template<typename Dtype>
+void BaseConvolutionLayer<Dtype>::forward_hybrid_conv(const Dtype* input,
+                                                   const Dtype* weights,
+                                                   Dtype* output,
+                                                   const Dtype* bias,
+                                                   const uint channels,
+                                                   bool skip_im2col) {
+  const Dtype* col_buff = input;
+  if (!is_1x1_) {
+    if (!skip_im2col) {
+      conv_im2col_cpu(input, col_buffer_.mutable_cpu_data());
+    }
+    col_buff = col_buffer_.cpu_data();
+  }
+  for (int_tp g = 0; g < group_; ++g) {
+    caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans,
+                         channels, conv_out_spatial_dim_,
+                          kernel_dim_, (Dtype) 1., weights + weight_offset_ * g,
+                          col_buff + col_offset_ * g, (Dtype) 0.,
+                          output + output_offset_ * g);
+  }
+
+  if (this->bias_term_) {
+    caffe_cpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, channels,
+                          out_spatial_dim_, 1, (Dtype) 1., bias,
+                          bias_multiplier_.cpu_data(), (Dtype) 1., output);
+
+  }
+}
+
+template<typename Dtype>
 void BaseConvolutionLayer<Dtype>::backward_cpu_gemm(const Dtype* output,
                                                     const Dtype* weights,
                                                     Dtype* input) {

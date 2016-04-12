@@ -1,6 +1,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <future>
 #include "caffe/filler.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/layers/conv_spatial_layer.hpp"
@@ -1062,11 +1063,57 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 
   tuned_ = true;
 }
+/*
+float* forward_hybrid_conv(const float* input,
+                           const float* weights,
+                           float* output,
+                           const float* bias,
+                           const float* bias_multiplier,
+                           const uint output_num,
+                           bool bias_term,
+                           const int_tp channels,
+                           const int_tp height, const int_tp width, const int_tp output_h, const int_tp output_w,
+                           const int_tp kernel_h,
+                           const int_tp kernel_w, const int_tp pad_h, const int_tp pad_w,
+                           const int_tp stride_h, const int_tp stride_w,
+                           const int_tp dilation_h, const int_tp dilation_w) {
+  float* col_buff = new float[channels*output_h*output_w*kernel_h*kernel_w];
+  Timer timer;
+  timer.initted();
+  timer.Start();
+  im2col_cpu<float>(input, channels,
+                 height, width, kernel_h,
+                 kernel_w, pad_h, pad_w,
+                 stride_h, stride_w,
+                 dilation_h, dilation_w,
+                 col_buff);
+  double eclipse = timer.MilliSeconds();
+  std::cout<<"time of im2col_cpu is: "<<eclipse<<std::endl;
+  caffe_cpu_gemm<float>(CblasNoTrans, CblasNoTrans,
+                         output_num, output_w*output_h,
+                          kernel_h*kernel_h*channels, (float) 1., weights,
+                          col_buff, (float) 0.,
+                          output);
+  delete [] col_buff;
+  if (bias_term) {
+    caffe_cpu_gemm<float>(CblasNoTrans, CblasNoTrans, output_num,
+                          output_w*output_h, 1, (float) 1., bias,
+                          bias_multiplier, (float) 1., output);
+  }
 
+  return output;
+}
+*/
+
+template<>
 cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
     const vector<Blob<float>*>& bottom, const vector<Blob<float>*>& top,
     int_tp index,
     int_tp numImages, kernelConfig* config) {
+
+  if(group_ != 1 || numImages != 1) {
+      return convolve(bottom, top, index, numImages, config);
+  }
 
   if (config->swizzle_weights)
     swizzleWeights(16);
@@ -1076,55 +1123,102 @@ cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
   viennacl::ocl::kernel &kernel = program.get_kernel(config->kernelName);
   cl_int err = 0;
 
-  for (int_tp n = 0; n < numImages; ++n) {
-    for (int_tp g = 0; g < group_; ++g) {
-      bias_offset_ = M_ * g;
-      int_tp image_offset = n * this->bottom_dim_
-          + width_ * height_ * (channels_ / group_) * g;
-      int_tp output_image_offset = n * this->top_dim_
-          + output_w_ * output_h_ * M_ * g;
+  const uint output_channels = M_;
+  uint multiple = M_ /config->global_work_size[2];
+  const uint hybrid_offset = (output_channels*80/100)/multiple * multiple;
+  //hybrid_offset = 0;
+  config->global_work_size[2] = (output_channels-hybrid_offset)/multiple;
 
-      cl_uint argIdx = 0;
-      int_tp kernel_offset = kernel_h_ * kernel_w_ * (channels_ / group_) * M_
-          * g;
+  float* output_cpu = new float[output_w_ * output_h_ * hybrid_offset];
+  const float* input_cpu = bottom[index]->cpu_data();
+  const float* weights_cpu = this->blobs_[0]->cpu_data();
+  const float* bias_cpu = this->blobs_[1]->cpu_data();
+  const float* bias_multiplier_cpu = bias_multiplier_.cpu_data();
+/*
+  std::future <float*> future_cpu = std::async(forward_hybrid_conv,
+                                               input_cpu, weights_cpu,
+                                               output_cpu,
+                                               bias_cpu,
+                                               bias_multiplier_cpu,
+                                               hybrid_offset,
+                                               isbias,
+                                               channels_, height_, width_,
+                                               output_h_, output_w_,
+                                               kernel_h_, kernel_w_,
+                                               pad_h_, pad_w_,
+                                               stride_h_, stride_w_,
+                                               (int_tp)1, (int_tp)1);
+                                               */
 
-      // Copy image
-      if (pad_w_ > 0 || pad_h_ > 0) {
-        pad_image(image_offset, config, numImages);
-        image_offset = 0;
-        kernel.arg(argIdx++, WrapHandle((cl_mem) col_data, &ctx));
-      } else {
-        kernel.arg(argIdx++, WrapHandle((cl_mem) bottom_data, &ctx));
-      }
-      kernel.arg(argIdx++, image_offset);
-      if (config->swizzle_weights)
-        kernel.arg(argIdx++, WrapHandle((cl_mem) swizzled_weights, &ctx));
-      else
-        kernel.arg(argIdx++, WrapHandle((cl_mem) weight, &ctx));
-      kernel.arg(argIdx++, kernel_offset);
-      kernel.arg(argIdx++, WrapHandle((cl_mem) bias_, &ctx));
-      kernel.arg(argIdx++, bias_offset_);
-      kernel.arg(argIdx++, WrapHandle((cl_mem) top_data, &ctx));
-      kernel.arg(argIdx++, output_image_offset);
-      if (config->use_null_local) {
-        err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
-                                     kernel.handle().get(), 3,
-                                     NULL,
-                                     config->global_work_size, NULL, 0, NULL,
-                                     NULL);
-      } else {
-        err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
-                                     kernel.handle().get(), 3,
-                                     NULL,
-                                     config->global_work_size,
-                                     config->local_work_size, 0, NULL,
-                                     NULL);
-      }
-
-      if (err != CL_SUCCESS)
-        return err;
-    }
+  /*
+  int_tp bias_offset = 0;//M_ * g;
+  int_tp image_offset = 0;//n * this->bottom_dim_ + width_ * height_ * (channels_ / group_) * g;
+  int_tp output_image_offset = 0;//n * this->top_dim_ + output_w_ * output_h_ * M_ * g;
+  int_tp kernel_offset = 0;//kernel_h_ * kernel_w_ * (channels_ / group_) * M_ * g;
+  */
+  int_tp bias_offset = hybrid_offset;//M_ * g;
+  int_tp image_offset = 0;//n * this->bottom_dim_ + width_ * height_ * (channels_ / group_) * g;
+  int_tp output_image_offset = output_w_ * output_h_ * hybrid_offset;//n * this->top_dim_ + output_w_ * output_h_ * M_ * g;
+  int_tp kernel_offset = kernel_h_ * kernel_w_ * channels_ * hybrid_offset;//kernel_h_ * kernel_w_ * (channels_ / group_) * M_ * g;
+  cl_uint argIdx = 0;
+  if (pad_w_ > 0 || pad_h_ > 0) {
+    pad_image(image_offset, config, numImages);
+    image_offset = 0;
+    kernel.arg(argIdx++, WrapHandle((cl_mem) this->col_data, &ctx));
+  } else {
+    kernel.arg(argIdx++, WrapHandle((cl_mem) this->bottom_data, &ctx));
   }
+  kernel.arg(argIdx++, image_offset);
+
+  if (config->swizzle_weights) {
+    kernel.arg(argIdx++, WrapHandle((cl_mem) this->swizzled_weights, &ctx));
+  } else {
+    kernel.arg(argIdx++, WrapHandle((cl_mem) this->weight, &ctx));
+  }
+  kernel.arg(argIdx++, kernel_offset);
+
+  kernel.arg(argIdx++, WrapHandle((cl_mem) this->bias_, &ctx));
+  kernel.arg(argIdx++, bias_offset);
+
+  kernel.arg(argIdx++, WrapHandle((cl_mem) this->top_data, &ctx));
+  kernel.arg(argIdx++, output_image_offset);
+
+  if (config->use_null_local) {
+    err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
+                                 kernel.handle().get(), 3,
+                                 NULL,
+                                 config->global_work_size, NULL, 0, NULL,
+                                 NULL);
+  } else {
+    err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
+                                 kernel.handle().get(), 3,
+                                 NULL,
+                                 config->global_work_size,
+                                 config->local_work_size, 0, NULL,
+                                 NULL);
+  }
+
+  forward_hybrid_conv(input_cpu, weights_cpu, output_cpu, bias_cpu, hybrid_offset);
+  /*
+  forward_hybrid_conv(input_cpu, weights_cpu,
+                     output_cpu, bias_cpu,
+                     bias_multiplier_cpu,
+                     hybrid_offset,
+                     isbias,channels_, height_, width_,
+                     output_h_, output_w_,
+                     kernel_h_, kernel_w_,
+                     pad_h_, pad_w_,
+                     stride_h_, stride_w_,
+                     (int_tp)1, (int_tp)1);
+  */
+  viennacl::backend::finish();
+  //output_cpu = future_cpu.get();
+  greentea_copy<float>(hybrid_offset*output_w_ * output_h_ , output_cpu, (cl_mem) top_data,
+                       0, &ctx);
+
+  delete [] output_cpu;
+  if (err != CL_SUCCESS)
+    return err;
 
   return err;
 }
@@ -1348,6 +1442,15 @@ bool ConvolutionLayerSpatial<double>::tune_local_size(
 template<>
 cl_int ConvolutionLayerSpatial<double>::convolve(
     const vector<Blob<double>*>& bottom, const vector<Blob<double>*>& top,
+    int_tp index,
+    int_tp numImages, kernelConfig* config) {
+  NOT_IMPLEMENTED;
+  return false;
+}
+
+template<>
+cl_int ConvolutionLayerSpatial<double>::convolve_hybrid(
+    const vector<Blob<float>*>& bottom, const vector<Blob<float>*>& top,
     int_tp index,
     int_tp numImages, kernelConfig* config) {
   NOT_IMPLEMENTED;
