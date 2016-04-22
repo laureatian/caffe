@@ -153,7 +153,11 @@ class ConvolutionLayerTest_Hybrid : public MultiDeviceTest<TypeParam> {
 
  protected:
   ConvolutionLayerTest_Hybrid()
-      : blob_bottom_(new Blob<Dtype>(1, 3, 28, 28)),
+      : //blob_bottom_(new Blob<Dtype>(1, 3, 224, 224)),
+        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
+        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
+        blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
+        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
         blob_bottom_2_(new Blob<Dtype>(1, 3, 28, 28)),
         blob_top_(new Blob<Dtype>()),
         blob_top_2_(new Blob<Dtype>()) {}
@@ -355,11 +359,44 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid,
   convolution_param->add_kernel_size(11);
   convolution_param->set_group(1);
   convolution_param->add_stride(4);
-  convolution_param->add_pad(9);
-  convolution_param->set_num_output(96);
+  convolution_param->add_pad(2);
+  convolution_param->set_num_output(64);
   convolution_param->mutable_weight_filler()->set_type("gaussian");
   convolution_param->mutable_bias_filler()->set_type("constant");
   convolution_param->mutable_bias_filler()->set_value(0);
+  shared_ptr<Layer<Dtype> > layer(
+      new ConvolutionLayerSpatial<Dtype>(layer_param));
+  layer->SetUp(this->blob_bottom_vec_, this->blob_top_vec_);
+  layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  // Check against reference convolution.
+  const Dtype* top_data;
+  const Dtype* ref_top_data;
+  caffe_conv(this->blob_bottom_, convolution_param, layer->blobs(),
+      this->MakeReferenceTop(this->blob_top_));
+  top_data = this->blob_top_->cpu_data();
+  ref_top_data = this->ref_blob_top_->cpu_data();
+  for (int_tp i = 0; i < this->blob_top_->count(); ++i) {
+    EXPECT_NEAR(top_data[i], ref_top_data[i], 1e-4);
+  }
+}
+
+
+TYPED_TEST(ConvolutionLayerTest_Hybrid,
+    TestSimpleConvolution_Spatial5x5x1x2_caffenet_Conv2) {
+  typedef typename TypeParam::Dtype Dtype;
+  //this->blob_bottom_vec_.push_back(this->blob_bottom_2_);
+  //this->blob_top_vec_.push_back(this->blob_top_2_);
+  LayerParameter layer_param;
+  ConvolutionParameter* convolution_param =
+      layer_param.mutable_convolution_param();
+  convolution_param->add_kernel_size(5);
+  convolution_param->set_group(1);
+  convolution_param->add_stride(1);
+  convolution_param->add_pad(2);
+  convolution_param->set_num_output(192);
+  convolution_param->mutable_weight_filler()->set_type("gaussian");
+  convolution_param->mutable_bias_filler()->set_type("constant");
+  convolution_param->mutable_bias_filler()->set_value(0.7);
   shared_ptr<Layer<Dtype> > layer(
       new ConvolutionLayerSpatial<Dtype>(layer_param));
   layer->SetUp(this->blob_bottom_vec_, this->blob_top_vec_);
@@ -385,9 +422,8 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid,
   */
 }
 
-
 TYPED_TEST(ConvolutionLayerTest_Hybrid,
-    TestSimpleConvolution_Spatial5x5x1x2_caffenet_Conv2) {
+    TestSimpleConvolution_5x5x1x2_caffenet_Conv2) {
   typedef typename TypeParam::Dtype Dtype;
   //this->blob_bottom_vec_.push_back(this->blob_bottom_2_);
   //this->blob_top_vec_.push_back(this->blob_top_2_);
@@ -397,8 +433,8 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid,
   convolution_param->add_kernel_size(5);
   convolution_param->set_group(1);
   convolution_param->add_stride(1);
-  convolution_param->add_pad(3);
-  convolution_param->set_num_output(96);
+  convolution_param->add_pad(2);
+  convolution_param->set_num_output(192);
   convolution_param->mutable_weight_filler()->set_type("gaussian");
   convolution_param->mutable_bias_filler()->set_type("constant");
   convolution_param->mutable_bias_filler()->set_value(0.7);
@@ -477,10 +513,9 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid,
   ConvolutionParameter* convolution_param =
       layer_param.mutable_convolution_param();
   convolution_param->add_kernel_size(3);
-  convolution_param->set_group(3);
   convolution_param->add_stride(1);
   convolution_param->add_pad(1);
-  convolution_param->set_num_output(384);
+  convolution_param->set_num_output(256);
   convolution_param->mutable_weight_filler()->set_type("gaussian");
   convolution_param->mutable_bias_filler()->set_type("constant");
   convolution_param->mutable_bias_filler()->set_value(0.7);
@@ -519,7 +554,7 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid,
       layer_param.mutable_convolution_param();
   convolution_param->add_kernel_size(3);
   convolution_param->set_group(1);
-  convolution_param->add_stride(2);
+  convolution_param->add_stride(1);
   convolution_param->add_pad(1);
   convolution_param->set_num_output(256);
   convolution_param->mutable_weight_filler()->set_type("gaussian");

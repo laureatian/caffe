@@ -347,7 +347,6 @@ void ConvolutionLayerSpatial<float>::pad_image(
                                 kernelConfig* config,
                                 int_tp imgNum) {
 #ifdef USE_GREENTEA
-  // ClState& state = Caffe::cl_state();
   viennacl::ocl::context &ctx = viennacl::ocl::get_context(
       this->device_->id());
   // Copy kernel
@@ -1019,8 +1018,6 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 #ifdef dbg
   float convolve_time = timed_convolve(bottom, top, bottom_index_, num_,
       kernelQueue[kernel_index_]);
-#else
-  timed_convolve(bottom, top, bottom_index_, num_, kernelQueue[kernel_index_]);
 #endif
   dbgPrint(std::cout << "Convolution Time:" << convolve_time << std::endl);
 
@@ -1038,8 +1035,6 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 
   for (int_tp x = 0; x < kernelQueue.size(); x++) {
     if (x != kernel_index_)
-      // Caffe::cl_state().release_program
-      // (kernelQueue[x]->kernelName.c_str());
       viennacl::ocl::current_context().delete_program(
           kernelQueue[x]->kernelName);
   }
@@ -1056,6 +1051,8 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
                << kernelQueue[kernel_index_]->local_work_size[0] << " "
                << kernelQueue[kernel_index_]->local_work_size[1] << " "
                << kernelQueue[kernel_index_]->local_work_size[2] << " "
+               << kernelQueue[kernel_index_]->cpu_work_size << " "
+               << kernelQueue[kernel_index_]->gpu_work_size << " "
                << kernelQueue[kernel_index_]->swizzle_weights << " "
                << kernelQueue[kernel_index_]->batched_execute << " "
                << kernelQueue[kernel_index_]->use_null_local << " ";
@@ -1070,7 +1067,7 @@ cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
     int_tp index,
     int_tp numImages, kernelConfig* config) {
 
-  if(group_ != 1 || numImages != 1) {
+  if(group_ != 1 || numImages != 1 || config->gpu_work_size == M_) {
       return convolve(bottom, top, index, numImages, config);
   }
 
@@ -1084,13 +1081,14 @@ cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
 
   const uint output_channels = M_;
 
-  const uint hybrid_offset = (output_channels*80/100)/zpad_ * zpad_
-      /config->local_work_size[2] * config->local_work_size[2];
+  //const uint hybrid_offset = (output_channels*0/100)/zpad_ * zpad_
+  //    /config->local_work_size[2] * config->local_work_size[2];
+  const uint hybrid_offset = 48;
   config->global_work_size[2] = (output_channels-hybrid_offset+zpad_-1)/zpad_;
-  if(config->global_work_size[2]/config->local_work_size[2]*config->local_work_size[2]
-     != config->global_work_size[2]) {
-    config->use_null_local = true;
-   }
+  //if(config->global_work_size[2]/config->local_work_size[2]*config->local_work_size[2]
+  //   != config->global_work_size[2]) {
+  //  config->use_null_local = true;
+  // }
 
   float* output_cpu = new float[output_w_ * output_h_ * hybrid_offset];
   const float* input_cpu = bottom[index]->cpu_data();
@@ -1275,6 +1273,8 @@ void ConvolutionLayerSpatial<Dtype>::load_cached_kernels(
     cachedKernel >> kernelQueue[kernel_index_]->local_work_size[0];
     cachedKernel >> kernelQueue[kernel_index_]->local_work_size[1];
     cachedKernel >> kernelQueue[kernel_index_]->local_work_size[2];
+    cachedKernel >> kernelQueue[kernel_index_]->cpu_work_size;
+    cachedKernel >> kernelQueue[kernel_index_]->gpu_work_size;
     cachedKernel >> kernelQueue[kernel_index_]->swizzle_weights;
     cachedKernel >> kernelQueue[kernel_index_]->batched_execute;
     cachedKernel >> kernelQueue[kernel_index_]->use_null_local;

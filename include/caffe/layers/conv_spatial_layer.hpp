@@ -92,6 +92,8 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
     size_t local_work_size[3];
     size_t global_work_size[3];
     int_tp workItem_output[3];
+    int_tp cpu_work_size;
+    int_tp gpu_work_size;
     bool verified;
     bool autoTune;
     bool tested;
@@ -103,7 +105,7 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
     kernelConfig() {
     }
     kernelConfig(string name, size_t* global_size, size_t* local_size,
-    int_tp* workItem,
+    int_tp* workItem, int_tp cpu_size, int_tp gpu_size,
                  bool tune, bool swizzle, bool batched, bool null_local,
                  int_tp type = 0) {
       kernelName = name;
@@ -112,6 +114,8 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
         global_work_size[x] = global_size[x];
         workItem_output[x] = workItem[x];
       }
+      cpu_work_size = cpu_size;
+      gpu_work_size = gpu_size;
       autoTune = tune;
       swizzle_weights = swizzle;
       batched_execute = batched;
