@@ -154,9 +154,9 @@ class ConvolutionLayerTest_Hybrid : public MultiDeviceTest<TypeParam> {
  protected:
   ConvolutionLayerTest_Hybrid()
       : //blob_bottom_(new Blob<Dtype>(1, 3, 224, 224)),
-        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
-        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
         blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
+        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
+        //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
         //blob_bottom_(new Blob<Dtype>(1, 3, 13, 13)),
         blob_bottom_2_(new Blob<Dtype>(1, 3, 28, 28)),
         blob_top_(new Blob<Dtype>()),
@@ -195,7 +195,7 @@ class ConvolutionLayerTest_Hybrid : public MultiDeviceTest<TypeParam> {
 };
 
 TYPED_TEST_CASE(ConvolutionLayerTest_Hybrid, TestFloatAndDevices);
-
+#if 0
 TYPED_TEST(ConvolutionLayerTest_Hybrid, TestSetup) {
   typedef typename TypeParam::Dtype Dtype;
   LayerParameter layer_param;
@@ -347,7 +347,7 @@ TYPED_TEST(ConvolutionLayerTest_Hybrid,
   }
   */
 }
-
+#endif
 TYPED_TEST(ConvolutionLayerTest_Hybrid,
     TestSimpleConvolution_Spatial11x11x1x2_caffenet_Conv1) {
   typedef typename TypeParam::Dtype Dtype;

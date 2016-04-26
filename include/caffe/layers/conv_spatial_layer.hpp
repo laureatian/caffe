@@ -93,7 +93,6 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
     size_t global_work_size[3];
     int_tp workItem_output[3];
     int_tp cpu_work_size;
-    int_tp gpu_work_size;
     bool verified;
     bool autoTune;
     bool tested;
@@ -105,7 +104,7 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
     kernelConfig() {
     }
     kernelConfig(string name, size_t* global_size, size_t* local_size,
-    int_tp* workItem, int_tp cpu_size, int_tp gpu_size,
+    int_tp* workItem, int_tp cpu_size,
                  bool tune, bool swizzle, bool batched, bool null_local,
                  int_tp type = 0) {
       kernelName = name;
@@ -115,7 +114,6 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
         workItem_output[x] = workItem[x];
       }
       cpu_work_size = cpu_size;
-      gpu_work_size = gpu_size;
       autoTune = tune;
       swizzle_weights = swizzle;
       batched_execute = batched;
@@ -187,7 +185,7 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
   virtual std::string generate_specific_key(int_tp type, int_tp blockWidth,
   int_tp blockHeight,
                                             int_tp blockDepth);
-  virtual void calculate_global_size(int_tp batch, int_tp* workItemOutput,
+  virtual void calculate_global_size(int_tp batch, int_tp output_channels, int_tp* workItemOutput,
                                      size_t* localSizes, size_t* globalSizes);
   void load_cached_kernels(const vector<Blob<Dtype>*>& bottom,
                            const vector<Blob<Dtype>*>& top);
@@ -217,7 +215,6 @@ class ConvolutionLayerSpatial : public BaseConvolutionLayer<Dtype> {
   int_tp pad_w_;
   int_tp stride_h_;
   int_tp stride_w_;
-  int_tp zpad_;
   /// M_ is the channel dimension of the output for a single group, which is the
   /// leading dimension of the filter matrix.
   int_tp M_;
