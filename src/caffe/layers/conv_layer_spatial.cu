@@ -16,17 +16,15 @@
 #endif
 
 namespace caffe {
-
+#ifndef CPU_ONLY
 #ifdef USE_GREENTEA
 
 // #define dbg
-
 #ifdef dbg
 #define dbgPrint(x) (x)
 #else
 #define dbgPrint(x)
 #endif
-
 
 template<>
 void ConvolutionLayerSpatial<float>::generate_key() {
@@ -1143,7 +1141,7 @@ void ConvolutionLayerSpatial<float>::Backward_gpu(
 
 template<typename Dtype>
 void ConvolutionLayerSpatial<Dtype>::load_cached_kernels(
-   const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
+    const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
   // Generates static key_
   if (tuned_)
     return;
@@ -1167,15 +1165,15 @@ void ConvolutionLayerSpatial<Dtype>::load_cached_kernels(
     cachedKernel >> type;
     create_convolution_kernel(bottom, top, type, x, y, z);
     kernel_index_ = kernelQueue.size() - 1;
-    if (kernel_index_ == -1) {
-      std::cerr << "Failed to get kernel from cached configurations."
-                << std::endl;
-      std::cerr << "Deleting broken cache file and try tuning again..."
-                << std::endl;
-      string bakFile = outputFile + ".bak";
-      std::rename(outputFile.c_str(), bakFile.c_str());
-      return;
-    }
+  if (kernel_index_ == -1) {
+    std::cerr << "Failed to get kernel from cached configurations."
+              << std::endl;
+    std::cerr << "Deleting broken cache file and try tuning again..."
+              << std::endl;
+    string bakFile = outputFile + ".bak";
+    std::rename(outputFile.c_str(), bakFile.c_str());
+    return;
+  }
     cachedKernel >> kernelQueue[kernel_index_]->global_work_size[0];
     cachedKernel >> kernelQueue[kernel_index_]->global_work_size[1];
     cachedKernel >> kernelQueue[kernel_index_]->global_work_size[2];
@@ -1187,13 +1185,14 @@ void ConvolutionLayerSpatial<Dtype>::load_cached_kernels(
     cachedKernel >> kernelQueue[kernel_index_]->use_null_local;
 
     tuned_ = true;
-   }
-   return;
+  }
+  return;
 }
 
 template<typename Dtype>
 void ConvolutionLayerSpatial<Dtype>::SetUp(
-    const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top, caffe::Backend backend) {
+    const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top,
+    caffe::Backend backend) {
   if (backend == caffe::BACKEND_OpenCL) {
     load_cached_kernels(bottom, top);
   }
@@ -1357,7 +1356,20 @@ void ConvolutionLayerSpatial<double>::Backward_gpu(
     const vector<Blob<double>*>& bottom) {
   NOT_IMPLEMENTED;
 }
+#else
+template<typename Dtype>
+void ConvolutionLayerSpatial<Dtype>::Forward_gpu(
+    const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
+  NOT_IMPLEMENTED;
+}
 
+template<typename Dtype>
+void ConvolutionLayerSpatial<Dtype>::Backward_gpu(
+    const vector<Blob<Dtype>*>& top, const vector<bool>& propagate_down,
+    const vector<Blob<Dtype>*>& bottom) {
+  NOT_IMPLEMENTED;
+}
+#endif
 INSTANTIATE_LAYER_GPU_FUNCS(ConvolutionLayerSpatial);
 #endif
 
