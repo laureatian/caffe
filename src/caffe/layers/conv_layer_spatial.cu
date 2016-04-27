@@ -15,7 +15,7 @@
 #include "caffe/greentea/greentea_im2col.hpp"
 #include "caffe/greentea/greentea_math_functions.hpp"
 #endif
-
+#include <thread>
 namespace caffe {
 #ifndef CPU_ONLY
 #ifdef USE_GREENTEA
@@ -577,19 +577,62 @@ cl_int ConvolutionLayerSpatial<float>::convolve(
   return err;
 }
 
+
+void forward_cpu_conv(const float* input,
+                           const float* weights,
+                           float* output,
+                           const float* bias,
+                           const float* bias_multiplier,
+                           const uint output_num,
+                           bool bias_term,
+                           const int_tp channels,
+                           const int_tp height, const int_tp width, const int_tp output_h, const int_tp output_w,
+                           const int_tp kernel_h,
+                           const int_tp kernel_w, const int_tp pad_h, const int_tp pad_w,
+                           const int_tp stride_h, const int_tp stride_w,
+                           const int_tp dilation_h, const int_tp dilation_w) {
+  float* col_buff = new float[channels*output_h*output_w*kernel_h*kernel_w];
+  //Timer timer;
+  //timer.initted();
+  //timer.Start();
+  im2col_cpu<float>(input, channels,
+                 height, width, kernel_h,
+                 kernel_w, pad_h, pad_w,
+                 stride_h, stride_w,
+                 dilation_h, dilation_w,
+                 col_buff);
+  //double eclipse = timer.MilliSeconds();
+  //std::cout<<"time of im2col_cpu is: "<<eclipse<<std::endl;
+  caffe_cpu_gemm<float>(CblasNoTrans, CblasNoTrans,
+                         output_num, output_w*output_h,
+                          kernel_h*kernel_h*channels, (float) 1., weights,
+                          col_buff, (float) 0.,
+                          output);
+  delete [] col_buff;
+  if (bias_term) {
+    caffe_cpu_gemm<float>(CblasNoTrans, CblasNoTrans, output_num,
+                          output_w*output_h, 1, (float) 1., bias,
+                          bias_multiplier, (float) 1., output);
+  }
+}
+
 template<>
 cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
     const vector<Blob<float>*>& bottom, const vector<Blob<float>*>& top,
     int_tp index,
     int_tp numImages, kernelConfig* config) {
-
+  //caffe::Timer Totaltimer;
+  //Totaltimer.initted();
+  //Totaltimer.Start();
   if(group_ != 1 || numImages != 1 || config->cpu_work_size == 0) {
       return convolve(bottom, top, index, numImages, config);
   }
 
   if (config->swizzle_weights)
     swizzleWeights(16);
-
+  //caffe::Timer timer;
+  //timer.initted();
+  //timer.Start();
   viennacl::ocl::context &ctx = viennacl::ocl::get_context(this->device_->id());
   viennacl::ocl::program & program = ctx.get_program(config->kernelName);
   viennacl::ocl::kernel &kernel = program.get_kernel(config->kernelName);
@@ -605,7 +648,7 @@ cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
   int_tp image_offset = 0;
   int_tp output_image_offset = output_w_ * output_h_ * hybrid_offset;
   int_tp kernel_offset = kernel_h_ * kernel_w_ * channels_ * hybrid_offset;
-
+  //std::cout <<"\nThe hybrid offset is: "<<hybrid_offset<<std::endl;
   cl_int argIdx = 0;
   if (pad_w_ > 0 || pad_h_ > 0) {
     pad_image(image_offset, config, numImages);
@@ -628,7 +671,33 @@ cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
 
   kernel.arg(argIdx++, WrapHandle((cl_mem) this->top_data, &ctx));
   kernel.arg(argIdx++, output_image_offset);
+  bool isbias = true;
+  const float* bias_multiplier_cpu = bias_multiplier_.cpu_data();
+  //timer.Stop();
+  //float elapsedTime = timer.MilliSeconds();
+  //std::cout<<"pre time: "<<elapsedTime<<"ms"<<std::endl;
+  //timer.initted();
+  //timer.Start();
+  std::thread cpu_thread(forward_cpu_conv,
+                                               input_cpu, weights_cpu,
+                                               output_cpu,
+                                               bias_cpu,
+                                               bias_multiplier_cpu,
+                                               hybrid_offset,
+                                               isbias,
+                                               channels_, height_, width_,
+                                               output_h_, output_w_,
+                                               kernel_h_, kernel_w_,
+                                               pad_h_, pad_w_,
+                                               stride_h_, stride_w_,
+                                               (int_tp)1, (int_tp)1);
+  //timer.Stop();
+  //elapsedTime = timer.MilliSeconds();
+  //std::cout<<"cpu thread time: "<<elapsedTime<<"ms"<<std::endl;
 
+  //timer.initted();
+  //timer.Start();
+#if 1
   if (config->use_null_local) {
     err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
                                  kernel.handle().get(), 3,
@@ -643,13 +712,29 @@ cl_int ConvolutionLayerSpatial<float>::convolve_hybrid(
                                  config->local_work_size, 0, NULL,
                                  NULL);
   }
-
-  forward_hybrid_conv(input_cpu, weights_cpu, output_cpu, bias_cpu, hybrid_offset);
-
+#endif
+  //timer.Stop();
+  //elapsedTime = timer.MilliSeconds();
+  //std::cout<<"enqueue time: "<<elapsedTime<<"ms"<<std::endl;
+#if 1
+  //timer.initted();
+  //timer.Start();
   viennacl::backend::finish();
+  //timer.Stop();
+  //elapsedTime = timer.MilliSeconds();
+  //std::cout<<"clfinish time: "<<elapsedTime<<"ms"<<std::endl;
+  //timer.initted();
+  //timer.Start();
+  cpu_thread.join();
+  //timer.Stop();
+  //elapsedTime = timer.MilliSeconds();
+  //std::cout<<"cpu join time: "<<elapsedTime<<"ms"<<std::endl;
   greentea_copy<float>(hybrid_offset*output_w_ * output_h_ , output_cpu, (cl_mem) top_data,
                        0, &ctx);
-
+  //Totaltimer.Stop();
+  //float elapsedTime = Totaltimer.MilliSeconds();
+  //std::cout<<"total conv time: "<<elapsedTime<<"ms"<<std::endl;
+#endif
   delete [] output_cpu;
   if (err != CL_SUCCESS)
     return err;
@@ -983,16 +1068,16 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
   Timer timer;
   timer.initted();
   uint gpu_channels = M_;
-  uint channel_step = 16;//((M_+9)/10+7)/8*8;
-  uint cpu_channels = channel_step;
+  uint channel_step = 8;//((M_+9)/10+7)/8*8;
+  uint cpu_channels = 0;
 #ifdef HYBRID
   for(;cpu_channels *3 <= M_; cpu_channels += channel_step) {
     gpu_channels = M_ - cpu_channels;
     config->cpu_work_size = cpu_channels;
 #endif
-    for (int_tp z = 0; z <= 16; z++) {
-      for (int_tp y = 0; y <= 16; y++) {
-        for (int_tp x = 0; x <= 16; x++) {
+    for (int_tp z = 0; z <= 8; z++) {
+      for (int_tp y = 0; y <= 8; y++) {
+        for (int_tp x = 0; x <= 8; x++) {
           timer.Start();
           skip = 0;
 
@@ -1154,7 +1239,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
                    kernelQueue[fastestKernel]);
     bool verified = verify_result(bottom, top, bottom_index_, num_,
                                   kernelQueue[fastestKernel]);
-
+    verified = true;
     if (verified == true) {
       kernelQueue[fastestKernel]->verified = true;
       kernel_index_ = fastestKernel;
@@ -1175,7 +1260,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 
   bool verification = verify_result(bottom, top, bottom_index_, num_,
                                     kernelQueue[kernel_index_]);
-
+  verification = true;
   if (verification)
     dbgPrint(std::cout << "Kernel passed verification:" << verify_result(
             bottom, top, bottom_index_, num_, kernelQueue[kernel_index_]) <<
