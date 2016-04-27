@@ -21,7 +21,7 @@ namespace caffe {
 #ifdef USE_GREENTEA
 
 
-// #define dbg
+#define dbg
 #ifdef dbg
 #define dbgPrint(x) (x)
 #else
@@ -857,7 +857,7 @@ bool ConvolutionLayerSpatial<float>::verify_result(
 
   kernelConfig tempConfig;
   tempConfig.batched_execute = false;
-#if 0
+#ifdef HYBRID
   uint hybrid_offset = config->cpu_work_size;
 
   int_tp bias_offset = hybrid_offset;
@@ -883,7 +883,7 @@ bool ConvolutionLayerSpatial<float>::verify_result(
   kernel.arg(argIdx, verifcationResult);
 
   size_t global_work_sizeB[3] = { (size_t) output_w_, (size_t) output_h_,
-      (size_t) M_ };
+      (size_t) M_-config->cpu_work_size };
   err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
                                kernel.handle().get(), 3,
                                NULL,
@@ -1068,7 +1068,8 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
   uint channel_step = 8;//((M_+9)/10+7)/8*8;
   uint cpu_channels = 0;
 #ifdef HYBRID
-  for(;cpu_channels *3 <= M_; cpu_channels += channel_step) {
+  for(;cpu_channels *3 <= M_; cpu_channels += channel_step)
+  {
     gpu_channels = M_ - cpu_channels;
     config->cpu_work_size = cpu_channels;
 #endif
@@ -1135,12 +1136,11 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
       localSize[1] << "]["<< localSize[2] << "]: " << fastestTime <<
       " Kernel_h: " << kernel_h_ << " kernel_w_: " << kernel_w_ <<
       " stride_w: " << stride_w_ << " pad_w_: " << pad_w_ << " cpu channels: " << hybrid_offset << std::endl);
-
+  config->cpu_work_size = hybrid_offset;
   if (config->autoTune) {
+    std::cout<<"in here "<<hybrid_offset<<std::endl;
     for (int_tp li = 0; li < 3; li++)
       config->local_work_size[li] = localSize[li];
-
-    config->cpu_work_size = hybrid_offset;
 
     if (config->batched_execute) {
       calculate_global_size(num_, M_-hybrid_offset, config->workItem_output,
@@ -1187,6 +1187,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 
   viennacl::ocl::context &ctx = viennacl::ocl::get_context(this->device_->id());
   const viennacl::ocl::device &device = ctx.current_device();
+#ifndef HYBRID
   if (device.vendor().find("Intel") != std::string::npos &&
     M_ % 16 == 0) {
     /* IDLF kernel is using Intel specific extension which make
@@ -1202,6 +1203,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
     create_convolution_kernel(bottom, top, 2, 6, 4, 1);
     create_convolution_kernel(bottom, top, 4, 1, 1, 1);
   } else {
+#endif
     create_convolution_kernel(bottom, top, 4, 1, 1, 1);
     for (int_tp y = 1; y < 4; y++)
       for (int_tp z = 1; z < 16 && z < M_; z++) {
@@ -1209,8 +1211,9 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
         if (num_ > 1)
           create_convolution_kernel(bottom, top, 3, 4, y, z);
       }
+#ifndef HYBRID
   }
-
+#endif
   for (int_tp x = 0; x < kernelQueue.size(); x++)
     tune_local_size(bottom, top, kernelQueue[x]);
 
@@ -1236,7 +1239,6 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
                    kernelQueue[fastestKernel]);
     bool verified = verify_result(bottom, top, bottom_index_, num_,
                                   kernelQueue[fastestKernel]);
-    verified = true;
     if (verified == true) {
       kernelQueue[fastestKernel]->verified = true;
       kernel_index_ = fastestKernel;
@@ -1257,7 +1259,6 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 
   bool verification = verify_result(bottom, top, bottom_index_, num_,
                                     kernelQueue[kernel_index_]);
-  verification = true;
   if (verification)
     dbgPrint(std::cout << "Kernel passed verification:" << verify_result(
             bottom, top, bottom_index_, num_, kernelQueue[kernel_index_]) <<
@@ -1415,7 +1416,6 @@ void ConvolutionLayerSpatial<Dtype>::load_cached_kernels(
     cachedKernel >> kernelQueue[kernel_index_]->local_work_size[1];
     cachedKernel >> kernelQueue[kernel_index_]->local_work_size[2];
     cachedKernel >> kernelQueue[kernel_index_]->cpu_work_size;
-    cachedKernel >> kernelQueue[kernel_index_]->gpu_work_size;
     cachedKernel >> kernelQueue[kernel_index_]->swizzle_weights;
     cachedKernel >> kernelQueue[kernel_index_]->batched_execute;
     cachedKernel >> kernelQueue[kernel_index_]->use_null_local;
