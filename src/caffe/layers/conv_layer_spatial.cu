@@ -20,11 +20,8 @@ namespace caffe {
 #ifndef CPU_ONLY
 #ifdef USE_GREENTEA
 
-<<<<<<< b24f24a148a0badfb678d106be1299497325b257
+
 // #define dbg
-=======
-#define dbg
->>>>>>> temp commit of hybrid
 #ifdef dbg
 #define dbgPrint(x) (x)
 #else
