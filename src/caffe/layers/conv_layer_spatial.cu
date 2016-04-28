@@ -857,50 +857,6 @@ bool ConvolutionLayerSpatial<float>::verify_result(
 
   kernelConfig tempConfig;
   tempConfig.batched_execute = false;
-#ifdef HYBRID
-  uint hybrid_offset = config->cpu_work_size;
-
-  int_tp bias_offset = hybrid_offset;
-  int_tp image_offset = 0;
-  int_tp output_image_offset = output_w_ * output_h_ * hybrid_offset;
-  int_tp kernel_offset = kernel_h_ * kernel_w_ * channels_ * hybrid_offset;
-
-  cl_int argIdx = 0;
-  if (pad_w_ > 0 || pad_h_ > 0) {
-    pad_image(image_offset, config, numImages);
-    image_offset = 0;
-    kernel.arg(argIdx++, WrapHandle((cl_mem) this->col_data, &ctx));
-  } else {
-    kernel.arg(argIdx++, WrapHandle((cl_mem) this->bottom_data, &ctx));
-  }
-  kernel.arg(argIdx++, image_offset);
-  kernel.arg(argIdx++, WrapHandle((cl_mem) this->weight, &ctx));
-  kernel.arg(argIdx++, kernel_offset);
-  kernel.arg(argIdx++, WrapHandle((cl_mem) this->bias_, &ctx));
-  kernel.arg(argIdx++, bias_offset);
-  kernel.arg(argIdx++, WrapHandle((cl_mem) this->top_data, &ctx));
-  kernel.arg(argIdx++, output_image_offset);
-  kernel.arg(argIdx, verifcationResult);
-
-  size_t global_work_sizeB[3] = { (size_t) output_w_, (size_t) output_h_,
-      (size_t) M_-config->cpu_work_size };
-  err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
-                               kernel.handle().get(), 3,
-                               NULL,
-                               global_work_sizeB, NULL, 0, NULL, NULL);
-
-  viennacl::backend::finish();
-  clEnqueueMapBuffer(ctx.get_queue().handle().get(), verifcationResult,
-                     true,
-                     CL_MAP_READ,
-                     0, sizeof(uint_tp), 0, NULL, NULL, NULL);
-
-  if (verificationFail)
-    return false;
-
-  if (err != CL_SUCCESS)
-    return false;
-#else
   for (int_tp n = 0; n < numImages; ++n) {
     for (int_tp g = 0; g < group_; ++g) {
       cl_uint argIdx = 0;
@@ -948,8 +904,6 @@ bool ConvolutionLayerSpatial<float>::verify_result(
         return false;
     }
   }
-#endif
-  viennacl::backend::finish();
   return true;
 }
 
@@ -1068,7 +1022,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
   uint channel_step = 8;//((M_+9)/10+7)/8*8;
   uint cpu_channels = 0;
 #ifdef HYBRID
-  for(;cpu_channels *3 <= M_; cpu_channels += channel_step)
+  for(;cpu_channels *2 <= M_; cpu_channels += channel_step)
   {
     gpu_channels = M_ - cpu_channels;
     config->cpu_work_size = cpu_channels;
