@@ -42,14 +42,16 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
       if (device.vendor().find("Intel") != std::string::npos && (K_%4) == 0) {
         viennacl::ocl::program &program =
             (Caffe::Get().GetDevice(this->device_->id(), false))->program();
-        viennacl::ocl::kernel &k = program.get_kernel(CL_KERNEL_SELECT("matvec_mul8"));
+        viennacl::ocl::kernel &k = program.get_kernel(CL_KERNEL_SELECT("vec_mul"));
         uint row_size = N_;
         uint col_size = K_;
         size_t localsize = 128;
-        size_t globalsize = row_size / 4 * localsize;
+        //size_t globalsize = row_size / 4 * localsize;
+        size_t globalsize = 128 * localsize;
 
         uint argId = 0;
         k.arg(argId++, WrapHandle((cl_mem)weight, &ctx));
+        k.arg(argId++, cl_uint(row_size));
         k.arg(argId++, cl_uint(col_size));
         k.arg(argId++, WrapHandle((cl_mem) bottom_data, &ctx));
         k.arg(argId++, WrapHandle((cl_mem) top_data, &ctx));

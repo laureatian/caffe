@@ -110,3 +110,34 @@ __kernel void TEMPLATE(matvec_mul1,Dtype)(
   if(lid == 0)
     result[row_gid+row_offset] = work[0];
 }
+
+__kernel void TEMPLATE(vec_mul,Dtype)( 
+          __global const float * A, 
+          unsigned int A_row_size, unsigned int A_col_size, 
+          __global const float * v,  
+          __global float * result, 
+          __local float * work) 
+{ 
+  unsigned int row_gid = get_global_id(0) / get_local_size(0); 
+  unsigned int col_gid = get_global_id(0) % get_local_size(0); 
+  unsigned int lid = get_local_id(0); 
+  for (unsigned int row = row_gid; row < A_row_size; row += get_num_groups(0)) 
+  { 
+    float4 dot_prod = 0;
+    float4 a_temp = 0;
+    float4 v_temp = 0; 
+    for (unsigned int col = col_gid; col < A_col_size / 4; col+=get_local_size(0)){
+      a_temp = vload4(col, A + row * A_col_size);
+      v_temp = vload4(col, v); 
+      dot_prod += a_temp * v_temp;
+    } 
+    work[lid] = dot(dot_prod, (float4)(1.0f, 1.0f, 1.0f, 1.0f)); 
+    for(unsigned int stride=get_local_size(0)/2 ; stride>0 ; stride>>=1){ 
+      barrier(CLK_LOCAL_MEM_FENCE); 
+      if(lid < stride) 
+        work[lid] += work[lid+stride]; 
+    } 
+    if(lid == 0) 
+      result[row] = work[0]; 
+  }
+}
