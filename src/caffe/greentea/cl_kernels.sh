@@ -165,7 +165,7 @@ echo "  ss << \"#endif  // DOUBLE_SUPPORT_AVAILABLE\" << \"\\n\\n\";  // NOLINT"
 
 echo "  std::string kernel_string = ss.str();" >> $SOURCE
 echo "  const char* kernel_program = kernel_string.c_str();" >> $SOURCE
-echo "  ctx->build_options(\"-cl-fast-relaxed-math -cl-mad-enable\");" >> $SOURCE
+echo "  // ctx->build_options(\"-cl-fast-relaxed-math -cl-mad-enable\");" >> $SOURCE
 echo "#ifdef USE_FFT" >> $SOURCE
 echo "  ctx->build_options(\"-DFFT\");" >> $SOURCE
 echo "#endif" >> $SOURCE
