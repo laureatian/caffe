@@ -2,7 +2,7 @@
 #include "header.cl"
 #endif
 #define VEC_SIZE 4
-__kernel void TEMPLATE(vec_mul4,Dtype)( 
+__kernel void TEMPLATE(matvec_mul,Dtype)( 
           __global const float4 * A, 
           unsigned int A_row_size, unsigned int A_col_size, 
           __global const float4 * v, 
