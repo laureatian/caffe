@@ -335,35 +335,6 @@ void greentea_gpu_gemv(const int_tp ctx_id, const CBLAS_TRANSPOSE TransA,
     clEnqueueUnmapMemObject(ctx.get_queue().handle().get(), y, yptr, 0, NULL,
     NULL);
   } else {
-#if 1
-      viennacl::ocl::context &ctx = viennacl::ocl::get_context(ctx_id);
-      viennacl::ocl::program &program = ctx.get_program("kernel_program");
-      viennacl::ocl::kernel &k = program.get_kernel("vec_mul4");
-      size_t localsize = 128;
-      size_t globalsize = M/8* localsize;
-
-      uint argId = 0;
-      k.arg(argId++, WrapHandle(A, &ctx));
-      k.arg(argId++, cl_uint(M));
-      k.arg(argId++, cl_uint(N));
-      //k.arg(argId++, x_pad);
-      //k.arg(argId++, y_pad);
-      k.arg(argId++, WrapHandle(x, &ctx));
-      k.arg(argId++, cl_uint(N));
-      k.arg(argId++, WrapHandle(y, &ctx));
-      k.arg(argId++, cl_uint(M));
-      k.arg(argId++, viennacl::ocl::local_mem(sizeof(cl_float8) * localsize));
-
-     cl_int err = clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
-                                   k.handle().get(), 1,
-                                   NULL,
-                                   &globalsize,
-                                   &localsize, 0, NULL,
-                                   NULL);
-     clFinish(ctx.get_queue().handle().get());
-     //std::cout <<"error code: " << err << std::endl;
-
-#else
 #ifndef USE_CLBLAS
 
     typedef typename viennacl::vector_base<Dtype,
@@ -409,7 +380,6 @@ void greentea_gpu_gemv(const int_tp ctx_id, const CBLAS_TRANSPOSE TransA,
               clTransA, M, N, alpha, A, offA, N, x, offx, 1,
               beta, y, offy, 1, 1, &queue, 0, NULL, NULL));
     }
-#endif
 #endif
   }
 }
