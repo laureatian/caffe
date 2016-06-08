@@ -248,14 +248,14 @@ __kernel void CFVerify(__global Dtype* image_data, int_tp image_offset,
       for(int_tp kern = 0; kern < ZPAR; kern++)
       if(kernelNum+kern < OUTPUT_Z)
       if(convolved_image[convolved_image_offset + (kernelNum+kern)*OUTPUT_H*OUTPUT_W + outputY*OUTPUT_W + outputX] != sum[kern] + bias[biasIndex +kern])
-      if( fabs(fabs(convolved_image[convolved_image_offset + (kernelNum+kern)*OUTPUT_H*OUTPUT_W + outputY*OUTPUT_W + outputX]) - fabs(sum[kern] + bias[biasIndex +kern])) > 0.01)
+      if( fabs(fabs(convolved_image[convolved_image_offset + (kernelNum+kern)*OUTPUT_H*OUTPUT_W + outputY*OUTPUT_W + outputX]) - fabs(sum[kern] + bias[biasIndex +kern])) > 1)
       resultsFail[0] = 1;
     }
     else
     for(int_tp kern = 0; kern < ZPAR; kern++)
     if(kernelNum+kern < OUTPUT_Z)
     if(convolved_image[convolved_image_offset + (kernelNum+kern)*OUTPUT_H*OUTPUT_W + outputY*OUTPUT_W + outputX] != sum[kern])
-    if( fabs(fabs(convolved_image[convolved_image_offset + (kernelNum+kern)*OUTPUT_H*OUTPUT_W + outputY*OUTPUT_W + outputX]) - fabs(sum[kern])) > 0.01)
+    if( fabs(fabs(convolved_image[convolved_image_offset + (kernelNum+kern)*OUTPUT_H*OUTPUT_W + outputY*OUTPUT_W + outputX]) - fabs(sum[kern])) > 1)
     resultsFail[0] = 1;
   }
 }

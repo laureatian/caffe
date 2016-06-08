@@ -3,6 +3,7 @@
 #include "caffe/filler.hpp"
 #include "caffe/layers/inner_product_layer.hpp"
 #include "caffe/util/math_functions.hpp"
+#include "caffe/util/benchmark.hpp"
 
 namespace caffe {
 
@@ -12,7 +13,6 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   const Dtype* bottom_data = bottom[0]->gpu_data();
   Dtype* top_data = top[0]->mutable_gpu_data();
   const Dtype* weight = this->blobs_[0]->gpu_data();
-
   if (this->device_->backend() == BACKEND_CUDA) {
 #ifdef USE_CUDA
     if (M_ == 1) {
@@ -36,10 +36,18 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   } else {
 #ifdef USE_GREENTEA
     if (M_ == 1) {
-      greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
+        //Timer timer;
+        //timer.initted();
+        //timer.Start();
+      //for(uint i = 0; i < 100; ++i) {
+        greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
                                K_, (Dtype) 1., (cl_mem) weight, 0,
                                (cl_mem) bottom_data, 0, (Dtype) 0.,
                                (cl_mem) top_data, 0);
+      //}
+      //timer.Stop();
+      //float elapsedTime = timer.MilliSeconds();
+      //std::cout << "GEMV Time is: " << elapsedTime / 100.f <<" ms" << std::endl;
       if (bias_term_)
         greentea_gpu_axpy<Dtype>(this->device_->id(), N_,
                                  bias_multiplier_.cpu_data()[0],
