@@ -1,9 +1,9 @@
+#include <string>
 #include <vector>
 
 #include "caffe/filler.hpp"
 #include "caffe/layers/inner_product_layer.hpp"
 #include "caffe/util/math_functions.hpp"
-#include "caffe/util/benchmark.hpp"
 
 namespace caffe {
 
@@ -36,53 +36,40 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   } else {
 #ifdef USE_GREENTEA
     if (M_ == 1) {
-//#define VECMUL_PROFILE
-#ifdef VECMUL_PROFILE
-      Timer timer;
-      timer.initted();
-      timer.Start();
-      for(uint i = 0; i < 100; ++i) {
-#endif
-        viennacl::ocl::context &ctx = viennacl::ocl::get_context(this->device_->id());
-        const viennacl::ocl::device &device = ctx.current_device();
-        if (device.vendor().find("Intel") != std::string::npos) {
-            viennacl::ocl::program &program = ctx.get_program("kernel_program");
-            viennacl::ocl::kernel &k = program.get_kernel("vec_mul4");
-            uint M = N_;
-            uint N = K_;
-            size_t localsize = 128;
-            size_t globalsize = M/8* localsize;
+      viennacl::ocl::context &ctx =
+          viennacl::ocl::get_context(this->device_->id());
+      const viennacl::ocl::device &device = ctx.current_device();
+      if (device.vendor().find("Intel") != std::string::npos) {
+        viennacl::ocl::program &program = ctx.get_program("kernel_program");
+        viennacl::ocl::kernel &k = program.get_kernel("vec_mul4");
+        uint M = N_;
+        uint N = K_;
+        size_t localsize = 128;
+        size_t globalsize = (M+7)/8* localsize;
 
-            uint argId = 0;
-            k.arg(argId++, WrapHandle((cl_mem)weight, &ctx));
-            k.arg(argId++, cl_uint(M));
-            k.arg(argId++, cl_uint(N));
-            k.arg(argId++, WrapHandle((cl_mem) bottom_data, &ctx));
-            k.arg(argId++, cl_uint(N));
-            k.arg(argId++, WrapHandle((cl_mem) top_data, &ctx));
-            k.arg(argId++, cl_uint(M));
-            k.arg(argId++, viennacl::ocl::local_mem(sizeof(cl_float8) * localsize));
+        uint argId = 0;
+        k.arg(argId++, WrapHandle((cl_mem)weight, &ctx));
+        k.arg(argId++, cl_uint(M));
+        k.arg(argId++, cl_uint(N));
+        k.arg(argId++, WrapHandle((cl_mem) bottom_data, &ctx));
+        k.arg(argId++, cl_uint(N));
+        k.arg(argId++, WrapHandle((cl_mem) top_data, &ctx));
+        k.arg(argId++, cl_uint(M));
+        k.arg(argId++, viennacl::ocl::local_mem(sizeof(cl_float8) * localsize));
 
-            clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
-                                         k.handle().get(), 1,
-                                         NULL,
-                                         &globalsize,
-                                         &localsize, 0, NULL,
-                                         NULL);
-           clFinish(ctx.get_queue().handle().get());
-           //std::cout <<"error code: " << err << std::endl;
-        } else {
+        clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
+                                     k.handle().get(), 1,
+                                     NULL,
+                                     &globalsize,
+                                     &localsize, 0, NULL,
+                                     NULL);
+        clFinish(ctx.get_queue().handle().get());
+      } else {
         greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
                                K_, (Dtype) 1., (cl_mem) weight, 0,
                                (cl_mem) bottom_data, 0, (Dtype) 0.,
                                (cl_mem) top_data, 0);
         }
-#ifdef VECMUL_PROFILE
-      }
-      timer.Stop();
-      float elapsedTime = timer.MilliSeconds();
-      std::cout << "GEMV Time is: " << elapsedTime / 100.f <<" ms" << std::endl;
-#endif
       if (bias_term_)
         greentea_gpu_axpy<Dtype>(this->device_->id(), N_,
                                  bias_multiplier_.cpu_data()[0],

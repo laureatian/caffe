@@ -9,6 +9,7 @@
 
 #include "caffe/test/test_caffe_main.hpp"
 #include "caffe/test/test_gradient_check_util.hpp"
+#include "caffe/util/benchmark.hpp"
 
 namespace caffe {
 
@@ -17,7 +18,7 @@ class InnerProductLayerTest : public MultiDeviceTest<TypeParam> {
   typedef typename TypeParam::Dtype Dtype;
  protected:
   InnerProductLayerTest()
-      : blob_bottom_(new Blob<Dtype>(1, 256, 6, 6)),
+      : blob_bottom_(new Blob<Dtype>(2, 3, 4, 5)),
         blob_bottom_nobatch_(new Blob<Dtype>(1, 2, 3, 4)),
         blob_top_(new Blob<Dtype>()) {
     // fill the values
@@ -122,10 +123,19 @@ TYPED_TEST(InnerProductLayerTest, TestForward) {
   }
 }
 
-
-TYPED_TEST(InnerProductLayerTest, TestForwardGemv) {
+TYPED_TEST(InnerProductLayerTest, TestForwardGemvFC6) {
   typedef typename TypeParam::Dtype Dtype;
-  this->blob_bottom_vec_.push_back(this->blob_bottom_);
+
+  Blob<Dtype>* const blob_bottom = new Blob<Dtype>(1, 256, 6, 6);
+  Blob<Dtype>* const blob_top = new Blob<Dtype>();
+  FillerParameter filler_param;
+  UniformFiller<Dtype> filler(filler_param);
+  filler.Fill(blob_bottom);
+
+  this->blob_bottom_vec_.clear();
+  this->blob_bottom_vec_.push_back(blob_bottom);
+  this->blob_top_vec_.clear();
+  this->blob_top_vec_.push_back(blob_top);
   LayerParameter layer_param;
   InnerProductParameter* inner_product_param =
       layer_param.mutable_inner_product_param();
@@ -136,11 +146,144 @@ TYPED_TEST(InnerProductLayerTest, TestForwardGemv) {
       new InnerProductLayer<Dtype>(layer_param));
   layer->SetUp(this->blob_bottom_vec_, this->blob_top_vec_);
   layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
-  const Dtype* data = this->blob_top_->cpu_data();
-  const int_tp count = this->blob_top_->count();
+  const Dtype* data = blob_top->cpu_data();
+  const int_tp count = blob_top->count();
   for (int_tp i = 0; i < count; ++i) {
-   EXPECT_GE(data[i], 1.);
+    EXPECT_GE(data[i], 1.);
   }
+
+  Timer timer;
+  timer.initted();
+  timer.Start();
+  for (uint i = 0; i < 100; ++i) {
+     layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  }
+  timer.Stop();
+  float elapsedTime = timer.MilliSeconds();
+  std::cout << "GEMV(4096x9216) Time is: " << elapsedTime / 100.f
+            <<" ms" << std::endl;
+
+  delete blob_bottom;
+  delete blob_top;
+}
+
+TYPED_TEST(InnerProductLayerTest, TestForwardGemvFC7) {
+  typedef typename TypeParam::Dtype Dtype;
+
+  Blob<Dtype>* const blob_bottom = new Blob<Dtype>(1, 4096, 1, 1);
+  Blob<Dtype>* const blob_top = new Blob<Dtype>();
+  FillerParameter filler_param;
+  UniformFiller<Dtype> filler(filler_param);
+  filler.Fill(blob_bottom);
+
+  this->blob_bottom_vec_.clear();
+  this->blob_bottom_vec_.push_back(blob_bottom);
+  this->blob_top_vec_.clear();
+  this->blob_top_vec_.push_back(blob_top);
+  LayerParameter layer_param;
+  InnerProductParameter* inner_product_param =
+      layer_param.mutable_inner_product_param();
+  inner_product_param->set_num_output(4096);
+  inner_product_param->set_bias_term(false);
+  inner_product_param->mutable_weight_filler()->set_type("uniform");
+  shared_ptr<InnerProductLayer<Dtype> > layer(
+      new InnerProductLayer<Dtype>(layer_param));
+  layer->SetUp(this->blob_bottom_vec_, this->blob_top_vec_);
+  layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  const Dtype* data = blob_top->cpu_data();
+  const int_tp count = blob_top->count();
+  for (int_tp i = 0; i < count; ++i) {
+    EXPECT_GE(data[i], 1.);
+  }
+
+  Timer timer;
+  timer.initted();
+  timer.Start();
+  for (uint i = 0; i < 100; ++i) {
+     layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  }
+  timer.Stop();
+  float elapsedTime = timer.MilliSeconds();
+  std::cout << "GEMV(4096x4096) Time is: " << elapsedTime / 100.f
+            <<" ms" << std::endl;
+  delete blob_bottom;
+  delete blob_top;
+}
+
+TYPED_TEST(InnerProductLayerTest, TestForwardGemvFC8) {
+  typedef typename TypeParam::Dtype Dtype;
+
+  Blob<Dtype>* const blob_bottom = new Blob<Dtype>(1, 4096, 1, 1);
+  Blob<Dtype>* const blob_top = new Blob<Dtype>();
+  FillerParameter filler_param;
+  UniformFiller<Dtype> filler(filler_param);
+  filler.Fill(blob_bottom);
+
+  this->blob_bottom_vec_.clear();
+  this->blob_bottom_vec_.push_back(blob_bottom);
+  this->blob_top_vec_.clear();
+  this->blob_top_vec_.push_back(blob_top);
+  LayerParameter layer_param;
+  InnerProductParameter* inner_product_param =
+      layer_param.mutable_inner_product_param();
+  inner_product_param->set_num_output(1000);
+  inner_product_param->set_bias_term(false);
+  inner_product_param->mutable_weight_filler()->set_type("uniform");
+  shared_ptr<InnerProductLayer<Dtype> > layer(
+      new InnerProductLayer<Dtype>(layer_param));
+  layer->SetUp(this->blob_bottom_vec_, this->blob_top_vec_);
+  layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  const Dtype* data = blob_top->cpu_data();
+  const int_tp count = blob_top->count();
+  for (int_tp i = 0; i < count; ++i) {
+    EXPECT_GE(data[i], 1.);
+  }
+  Timer timer;
+  timer.initted();
+  timer.Start();
+  for (uint i = 0; i < 100; ++i) {
+     layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  }
+  timer.Stop();
+  float elapsedTime = timer.MilliSeconds();
+  std::cout << "GEMV(1000x4096) Time is: " << elapsedTime / 100.f
+            <<" ms" << std::endl;
+
+  delete blob_bottom;
+  delete blob_top;
+}
+
+TYPED_TEST(InnerProductLayerTest, TestForwardGemvFC_dev) {
+  typedef typename TypeParam::Dtype Dtype;
+
+  Blob<Dtype>* const blob_bottom = new Blob<Dtype>(1, 4097, 1, 1);
+  Blob<Dtype>* const blob_top = new Blob<Dtype>();
+  FillerParameter filler_param;
+  UniformFiller<Dtype> filler(filler_param);
+  filler.Fill(blob_bottom);
+
+  this->blob_bottom_vec_.clear();
+  this->blob_bottom_vec_.push_back(blob_bottom);
+  this->blob_top_vec_.clear();
+  this->blob_top_vec_.push_back(blob_top);
+  LayerParameter layer_param;
+  InnerProductParameter* inner_product_param =
+      layer_param.mutable_inner_product_param();
+  inner_product_param->set_num_output(1002);
+  inner_product_param->set_bias_term(false);
+  inner_product_param->mutable_weight_filler()->set_type("uniform");
+  shared_ptr<InnerProductLayer<Dtype> > layer(
+      new InnerProductLayer<Dtype>(layer_param));
+  layer->SetUp(this->blob_bottom_vec_, this->blob_top_vec_);
+  layer->Forward(this->blob_bottom_vec_, this->blob_top_vec_);
+  const Dtype* data = blob_top->cpu_data();
+  const int_tp count = blob_top->count();
+  for (int_tp i = 0; i < count; ++i) {
+    EXPECT_GE(data[i], 1.);
+  }
+
+  delete blob_bottom;
+  delete blob_top;
 }
 /**
  * @brief Init. an IP layer without transpose + random weights,

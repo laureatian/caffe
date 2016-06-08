@@ -20,7 +20,7 @@
 namespace caffe {
 #ifndef CPU_ONLY
 #ifdef USE_GREENTEA
-//#define HYBRID
+#define HYBRID
 #define dbg
 #ifdef dbg
 #define dbgPrint(x) (x)
