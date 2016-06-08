@@ -1,3 +1,4 @@
+#include <string>
 #include <vector>
 
 #include "caffe/filler.hpp"
@@ -12,7 +13,6 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   const Dtype* bottom_data = bottom[0]->gpu_data();
   Dtype* top_data = top[0]->mutable_gpu_data();
   const Dtype* weight = this->blobs_[0]->gpu_data();
-
   if (this->device_->backend() == BACKEND_CUDA) {
 #ifdef USE_CUDA
     if (M_ == 1) {
@@ -36,10 +36,41 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   } else {
 #ifdef USE_GREENTEA
     if (M_ == 1) {
-      greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
+      viennacl::ocl::context &ctx =
+          viennacl::ocl::get_context(this->device_->id());
+      const viennacl::ocl::device &device = ctx.current_device();
+      if (device.vendor().find("Intel") != std::string::npos) {
+        viennacl::ocl::program &program =
+            (Caffe::Get().GetDevice(this->device_->id(), false))->program();
+        viennacl::ocl::kernel &k = program.get_kernel(CL_KERNEL_SELECT("matvec_mul"));
+        uint M = N_;
+        uint N = K_;
+        size_t localsize = 128;
+        size_t globalsize = (M+7)/8* localsize;
+
+        uint argId = 0;
+        k.arg(argId++, WrapHandle((cl_mem)weight, &ctx));
+        k.arg(argId++, cl_uint(M));
+        k.arg(argId++, cl_uint(N));
+        k.arg(argId++, WrapHandle((cl_mem) bottom_data, &ctx));
+        k.arg(argId++, cl_uint(N));
+        k.arg(argId++, WrapHandle((cl_mem) top_data, &ctx));
+        k.arg(argId++, cl_uint(M));
+        k.arg(argId++, viennacl::ocl::local_mem(sizeof(cl_float8) * localsize));
+
+        clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
+                                     k.handle().get(), 1,
+                                     NULL,
+                                     &globalsize,
+                                     &localsize, 0, NULL,
+                                     NULL);
+        clFinish(ctx.get_queue().handle().get());
+      } else {
+        greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
                                K_, (Dtype) 1., (cl_mem) weight, 0,
                                (cl_mem) bottom_data, 0, (Dtype) 0.,
                                (cl_mem) top_data, 0);
+        }
       if (bias_term_)
         greentea_gpu_axpy<Dtype>(this->device_->id(), N_,
                                  bias_multiplier_.cpu_data()[0],
