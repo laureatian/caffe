@@ -807,6 +807,7 @@ float ConvolutionLayerSpatial<float>::timed_convolve(
 #endif
   timer.Stop();
   if (err != CL_SUCCESS) {
+    std::cout<< "failed on timed_convolve" << std::endl;
     config->tested = true;
     config->verified = false;
   }
