@@ -1180,6 +1180,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
             && kernelQueue[x]->tested == false) {
           fastestKernel = x;
           fastestTime = kernelQueue[x]->executionTime;
+          std::cout<<"fastest time is : " << fastestTime <<" kernel index is: " << x << std::endl;
         }
       }
       if (fastestKernel < 0) break;
@@ -1202,7 +1203,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
   }
   if (verification) {
     dbgPrint(std::cout << "Kernel <" << kernelQueue[kernel_index_]->kernelName
-                       << "> passed verification" << std::endl);
+                       << "> passed verification" << " kernel index: " << kernel_index_ << std::endl);
   } else {
     dbgPrint(std::cout << "Verification was not successful, "
                        << "fallback to basic kernel" << std::endl);
