@@ -996,13 +996,13 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
 #ifdef HYBRID
   uint_tp channel_step = 16 / group_;
   uint_tp cpu_channels = 0;
-  for (; cpu_channels * 2 <= M_; cpu_channels += channel_step) {
+  for (; cpu_channels <= M_ - 16; cpu_channels += channel_step) {
     gpu_channels = M_ - cpu_channels;
     config->cpu_work_size = cpu_channels;
 #endif
-    for (int_tp z = 0; z <= 8; z++) {
-      for (int_tp y = 0; y <= 8; y++) {
-        for (int_tp x = 0; x <= 8; x++) {
+    for (int_tp z = 0; z <= 16; z++) {
+      for (int_tp y = 0; y <= 16; y++) {
+        for (int_tp x = 0; x <= 16; x++) {
           timer.Start();
           skip = 0;
 
@@ -1015,7 +1015,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
                 (multiplier * z == 0) ? 1 : multiplier * z;
 
             if (config->batched_execute) {
-              calculate_global_size(2, gpu_channels, config->workItem_output,
+              calculate_global_size(2, M_, config->workItem_output,
                                     config->local_work_size,
                                     config->global_work_size);
             } else {
@@ -1023,6 +1023,8 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
                                     config->local_work_size,
                                     config->global_work_size);
             }
+          } else {
+            config->global_work_size[2] = gpu_channels;
           }
           if (config->workItem_output[2] *
             config->global_work_size[2] + config->cpu_work_size != M_)
@@ -1089,6 +1091,8 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
       calculate_global_size(1, M_-hybrid_offset, config->workItem_output,
                             config->local_work_size, config->global_work_size);
     }
+  } else {
+    config->global_work_size[2] = M_ - config->cpu_work_size;
   }
   return true;
 }
