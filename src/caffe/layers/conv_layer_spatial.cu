@@ -820,6 +820,9 @@ float ConvolutionLayerSpatial<float>::timed_convolve(
   double k_h = kernel_h_;
   double k_z = channels_;
   double totalFlops = ((k_w*k_h*k_z -1)*2)*(out_w*out_h*out_z)*num_;
+  if (err != CL_SUCCESS) {
+    std::cout<< "failed on timed_convolve" << std::endl;
+  }
   std::cout << "Kernel: " << config->kernelName << std::endl;
   std::cout << "\tEstimated Gflops:" << ((totalFlops/1000)/1000)/1000
             << std::endl;
@@ -1144,10 +1147,12 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
   }
   for (int_tp y = 1; y < 4; y += 1)
     for (int_tp z = 1; z < 16 && z < M_; z += 1) {
+      /*
       if (4 * y * z > 32) continue;
       create_convolution_kernel(bottom, top, 1, 4, y, z);
       if (num_ > 1)
         create_convolution_kernel(bottom, top, 3, 4, y, z);
+      */
     }
   for (int_tp x = 0; x < kernelQueue.size(); x++)
     if (tune_local_size(bottom, top, kernelQueue[x])) {
