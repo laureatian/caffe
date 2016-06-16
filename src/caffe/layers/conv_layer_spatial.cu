@@ -997,6 +997,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
   timer.initted();
   bool allFailed = true;
   uint_tp gpu_channels = M_;
+  if (config->kernelName == string("U3_3_192_1_1_1_1_15_15_128_1_384_1_4_2_3_2")) {
 #ifdef HYBRID
   uint_tp channel_step = 16 / group_;
   uint_tp cpu_channels = 0;
@@ -1057,6 +1058,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
           allFailed = false;
 
           float elapsedTime = timer.MilliSeconds();
+          std::cout << "cpu size : " << config->cpu_work_size <<" time: " << elapsedTime << std::endl;
           if (elapsedTime < fastestTime) {
             fastestTime = elapsedTime;
             localSize[0] = config->local_work_size[0];
@@ -1070,6 +1072,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
 #ifdef HYBRID
   }
 #endif
+  }
   if (allFailed) {
     // 1,1,1 is never a good local size and no need to test at all.
     dbgPrint(std::cout << "Can't find good local size for "
