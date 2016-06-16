@@ -1136,24 +1136,24 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
     M_ % 16 == 0) {
     /* IDLF kernel is using Intel specific extension which make
        them intel only. */
-    create_convolution_kernel(bottom, top, 2, 4, 2, 1);
-    create_convolution_kernel(bottom, top, 2, 4, 4, 1);
-    create_convolution_kernel(bottom, top, 2, 8, 2, 1);
-    create_convolution_kernel(bottom, top, 2, 8, 4, 1);
-    create_convolution_kernel(bottom, top, 2, 6, 4, 1);
-    create_convolution_kernel(bottom, top, 2, 3, 3, 1);
-    create_convolution_kernel(bottom, top, 2, 5, 5, 1);
-    create_convolution_kernel(bottom, top, 2, 3, 4, 1);
-    create_convolution_kernel(bottom, top, 2, 6, 4, 1);
+    if (this->blobs()[0]->shape()[2] > 5) {
+      create_convolution_kernel(bottom, top, 2, 4, 2, 1);
+      create_convolution_kernel(bottom, top, 2, 4, 4, 1);
+      create_convolution_kernel(bottom, top, 2, 8, 2, 1);
+      create_convolution_kernel(bottom, top, 2, 8, 4, 1);
+      create_convolution_kernel(bottom, top, 2, 6, 4, 1);
+      create_convolution_kernel(bottom, top, 2, 3, 3, 1);
+      create_convolution_kernel(bottom, top, 2, 5, 5, 1);
+      create_convolution_kernel(bottom, top, 2, 3, 4, 1);
+      create_convolution_kernel(bottom, top, 2, 6, 4, 1);
+    }
   }
   for (int_tp y = 1; y < 4; y += 1)
     for (int_tp z = 1; z < 16 && z < M_; z += 1) {
-      /*
       if (4 * y * z > 32) continue;
       create_convolution_kernel(bottom, top, 1, 4, y, z);
       if (num_ > 1)
         create_convolution_kernel(bottom, top, 3, 4, y, z);
-      */
     }
   for (int_tp x = 0; x < kernelQueue.size(); x++)
     if (tune_local_size(bottom, top, kernelQueue[x])) {
