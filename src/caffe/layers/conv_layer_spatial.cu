@@ -793,7 +793,7 @@ float ConvolutionLayerSpatial<float>::timed_convolve(
     const vector<Blob<float>*>& bottom, const vector<Blob<float>*>& top,
     int_tp index,
     int_tp numImages, kernelConfig* config) {
-  Timer timer;
+  CPUTimer timer;
   timer.initted();
   timer.Start();
   cl_int err;
@@ -806,13 +806,14 @@ float ConvolutionLayerSpatial<float>::timed_convolve(
     err = convolve(bottom, top, index, num_, config);
 #endif
   timer.Stop();
+  float elapsedTime = timer.MicroSeconds() / 1000.f;
   if (err != CL_SUCCESS) {
     std::cout<< "failed on timed_convolve" << std::endl;
     config->tested = true;
     config->verified = false;
   }
 
-  float elapsedTime = timer.MilliSeconds();
+
 #ifdef dbg
   double out_w = output_w_;
   double out_h = output_h_;
@@ -993,24 +994,12 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
   uint_tp hybrid_offset = 0;
 
   int_tp skip = 0;
-  Timer timer;
-  timer.initted();
   bool allFailed = true;
   uint_tp gpu_channels = M_;
-  if (config->kernelName == string("U3_3_192_1_1_1_1_15_15_128_1_384_1_4_2_3_2")) {
-#ifdef HYBRID
-  uint_tp channel_step = 16 / group_;
-  uint_tp cpu_channels = 0;
-  for (; cpu_channels <= M_ - 16; cpu_channels += channel_step) {
-    gpu_channels = M_ - cpu_channels;
-    config->cpu_work_size = cpu_channels;
-#endif
+  /*if (config->kernelName == string("U3_3_192_1_1_1_1_15_15_1_1_384_1_4_2_3_2")) */{
     for (int_tp z = 0; z <= 16; z++) {
       for (int_tp y = 0; y <= 16; y++) {
         for (int_tp x = 0; x <= 16; x++) {
-          timer.Start();
-          skip = 0;
-
           if (config->autoTune) {
             config->local_work_size[0] =
                 (multiplier * x == 0) ? 1 : multiplier * x;
@@ -1018,60 +1007,73 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
                 (multiplier * y == 0) ? 1 : multiplier * y;
             config->local_work_size[2] =
                 (multiplier * z == 0) ? 1 : multiplier * z;
-
-            if (config->batched_execute) {
-              calculate_global_size(2, M_, config->workItem_output,
-                                    config->local_work_size,
-                                    config->global_work_size);
-            } else {
-              calculate_global_size(1, gpu_channels, config->workItem_output,
-                                    config->local_work_size,
-                                    config->global_work_size);
-            }
-          } else {
-            config->global_work_size[2] = gpu_channels;
           }
-          if (config->workItem_output[2] *
-            config->global_work_size[2] + config->cpu_work_size != M_)
-            break;
-
-          if (config->swizzle_weights)
-            z = 32;
-
-          int_tp err = 0;
-          if (config->batched_execute)
-            err = batched_convolve(bottom, top, 0, 1, config);
-          else
 #ifdef HYBRID
-            err = convolve_hybrid(bottom, top, 0, 1, config);
-#else
-            err = convolve(bottom, top, 0, 1, config);
+  uint_tp channel_step = 16 / group_;
+  uint_tp cpu_channels = 0;
+          for (; cpu_channels <= M_ / 2; cpu_channels += channel_step) {
+            gpu_channels = M_ - cpu_channels;
+            config->cpu_work_size = cpu_channels;
 #endif
-          if (err != CL_SUCCESS)
-            skip = 1;
+            if (config->autoTune) {
+              if (config->batched_execute) {
+                calculate_global_size(2, M_, config->workItem_output,
+                                      config->local_work_size,
+                                      config->global_work_size);
+                config->cpu_work_size = 0;
+              } else {
+                calculate_global_size(1, gpu_channels, config->workItem_output,
+                                      config->local_work_size,
+                                      config->global_work_size);
+              }
+            } else {
+              config->global_work_size[2] = gpu_channels;
+            }
 
-          if (skip) {
+            if (config->workItem_output[2] *
+              config->global_work_size[2] + config->cpu_work_size != M_)
+              continue;
+
+            if (config->swizzle_weights)
+              z = 32;
+            CPUTimer timer;
+            timer.initted();
+            timer.Start();
+            skip = 0;
+            int_tp err = 0;
+            if (config->batched_execute)
+              err = batched_convolve(bottom, top, 0, 1, config);
+            else
+  #ifdef HYBRID
+              err = convolve_hybrid(bottom, top, 0, 1, config);
+  #else
+              err = convolve(bottom, top, 0, 1, config);
+  #endif
+            if (err != CL_SUCCESS)
+              skip = 1;
+
+            if (skip) {
+              timer.Stop();
+              continue;
+            }
             timer.Stop();
-            break;
-          }
-          timer.Stop();
-          allFailed = false;
+            allFailed = false;
 
-          float elapsedTime = timer.MilliSeconds();
-          std::cout << "cpu size : " << config->cpu_work_size <<" time: " << elapsedTime << std::endl;
-          if (elapsedTime < fastestTime) {
-            fastestTime = elapsedTime;
-            localSize[0] = config->local_work_size[0];
-            localSize[1] = config->local_work_size[1];
-            localSize[2] = config->local_work_size[2];
-            hybrid_offset = config->cpu_work_size;
+            float elapsedTime = timer.MicroSeconds() / 1000.f;
+            std::cout << "cpu size : " << config->cpu_work_size <<" time: " << elapsedTime << std::endl;
+            if (elapsedTime < fastestTime) {
+              fastestTime = elapsedTime;
+              localSize[0] = config->local_work_size[0];
+              localSize[1] = config->local_work_size[1];
+              localSize[2] = config->local_work_size[2];
+              hybrid_offset = config->cpu_work_size;
+            }
+#ifdef HYBRID
           }
+#endif
         }
       }
     }
-#ifdef HYBRID
-  }
-#endif
   }
   if (allFailed) {
     // 1,1,1 is never a good local size and no need to test at all.
@@ -1161,7 +1163,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
   for (int_tp x = 0; x < kernelQueue.size(); x++)
     if (tune_local_size(bottom, top, kernelQueue[x])) {
       kernelQueue[x]->executionTime = timed_convolve(bottom, top, bottom_index_,
-                                                     num_, kernelQueue[x]);
+                                                     1, kernelQueue[x]);
     } else {
       // skip those kernels without a good local size.
       kernelQueue[x]->verified = false;
@@ -1170,7 +1172,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
 
   for (int_tp x = 0; x < kernelQueue.size(); x++)
     kernelQueue[x]->executionTime = timed_convolve(bottom, top, bottom_index_,
-                                                   num_, kernelQueue[x]);
+                                                   1, kernelQueue[x]);
 
   int_tp failures = 0;
   bool verification = false;
