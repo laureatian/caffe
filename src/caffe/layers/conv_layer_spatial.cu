@@ -991,6 +991,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
   float fastestTime = 999999990000000000000000000.0f;
   uint_tp multiplier = 4;
   uint_tp localSize[3] = { 1, 1, 1 };
+  uint_tp globalSize[3] = {1, 1, 1};
   uint_tp hybrid_offset = 0;
 
   int_tp skip = 0;
@@ -1010,7 +1011,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
           }
 #ifdef HYBRID
   uint_tp channel_step = 16 / group_;
-  uint_tp cpu_channels = 0;
+  uint_tp cpu_channels = 192;
           for (; cpu_channels <= M_ / 2; cpu_channels += channel_step) {
             gpu_channels = M_ - cpu_channels;
             config->cpu_work_size = cpu_channels;
@@ -1036,6 +1037,16 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
 
             if (config->swizzle_weights)
               z = 32;
+
+            vector<Blob<float>*> bottom_ref;
+            vector<Blob<float>*> top_ref;
+            Blob<float> bottom_blob;
+            bottom_blob.ReshapeLike(*bottom[0]);
+            bottom_blob.CopyFrom(*bottom[0]);
+            Blob<float> top_blob;
+            top_blob.ReshapeLike(*top[0]);
+            bottom_ref.push_back(&bottom_blob);
+            top_ref.push_back(&top_blob);
             CPUTimer timer;
             timer.initted();
             timer.Start();
@@ -1045,27 +1056,31 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
               err = batched_convolve(bottom, top, 0, 1, config);
             else
   #ifdef HYBRID
-              err = convolve_hybrid(bottom, top, 0, 1, config);
+              err = convolve_hybrid(bottom_ref, top_ref, 0, 1, config);
   #else
               err = convolve(bottom, top, 0, 1, config);
   #endif
             if (err != CL_SUCCESS)
               skip = 1;
-
             if (skip) {
               timer.Stop();
               continue;
             }
             timer.Stop();
             allFailed = false;
+            bottom_ref.clear();
+            top_ref.clear();
 
             float elapsedTime = timer.MicroSeconds() / 1000.f;
-            std::cout << "cpu size : " << config->cpu_work_size <<" time: " << elapsedTime << std::endl;
+            //std::cout << "cpu size : " << config->cpu_work_size <<" time: " << elapsedTime << std::endl;
             if (elapsedTime < fastestTime) {
               fastestTime = elapsedTime;
               localSize[0] = config->local_work_size[0];
               localSize[1] = config->local_work_size[1];
               localSize[2] = config->local_work_size[2];
+              globalSize[0] = config->global_work_size[0];
+              globalSize[1] = config->global_work_size[1];
+              globalSize[2] = config->global_work_size[2];
               hybrid_offset = config->cpu_work_size;
             }
 #ifdef HYBRID
@@ -1086,13 +1101,16 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
       localSize[1] << "]["<< localSize[2] << "]: " << fastestTime <<
       " Kernel_h: " << kernel_h_ << " kernel_w_: " << kernel_w_ <<
       " stride_w: " << stride_w_ << " pad_w_: " << pad_w_ <<
-      " cpu channels: " << hybrid_offset << std::endl);
+      " cpu channels: " << hybrid_offset <<
+      " x: " << config->workItem_output[0] << " y: " <<       config->workItem_output[0] << "z: " <<    config->workItem_output[0]  << std::endl);
 
   config->cpu_work_size = hybrid_offset;
   if (config->autoTune) {
-    for (int_tp li = 0; li < 3; li++)
+    for (int_tp li = 0; li < 3; li++) {
       config->local_work_size[li] = localSize[li];
-
+      config->global_work_size[li] = globalSize[li];
+    }
+/*
     if (config->batched_execute) {
       calculate_global_size(num_, M_-hybrid_offset, config->workItem_output,
                             config->local_work_size, config->global_work_size);
@@ -1100,6 +1118,7 @@ bool ConvolutionLayerSpatial<float>::tune_local_size(
       calculate_global_size(1, M_-hybrid_offset, config->workItem_output,
                             config->local_work_size, config->global_work_size);
     }
+    */
   } else {
     config->global_work_size[2] = M_ - config->cpu_work_size;
   }
@@ -1153,6 +1172,8 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
       create_convolution_kernel(bottom, top, 2, 6, 4, 1);
     }
   }
+  //create_convolution_kernel(bottom, top, 1, 4, 4, 4);
+
   for (int_tp y = 1; y < 4; y += 1)
     for (int_tp z = 1; z < 16 && z < M_; z += 1) {
       if (4 * y * z > 32) continue;
@@ -1160,6 +1181,7 @@ void ConvolutionLayerSpatial<float>::setup_convolution(
       if (num_ > 1)
         create_convolution_kernel(bottom, top, 3, 4, y, z);
     }
+
   for (int_tp x = 0; x < kernelQueue.size(); x++)
     if (tune_local_size(bottom, top, kernelQueue[x])) {
       kernelQueue[x]->executionTime = timed_convolve(bottom, top, bottom_index_,
