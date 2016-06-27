@@ -537,7 +537,8 @@ void pad_image(const int_tp ctx_id,
                int_tp pad_h_,
                int_tp pad_w_,
                const float* bottom_data,
-               float* col_data) {
+               float* col_data,
+               int_tp imgNum) {
 #ifdef USE_GREENTEA
   // Copy kernel
   viennacl::ocl::program & program = (Caffe::Get().GetDevice(ctx_id, false))
@@ -559,6 +560,8 @@ void pad_image(const int_tp ctx_id,
   oclk_copy.arg(argIdx++, pad_w_);
   oclk_copy.arg(argIdx++, WrapHandle((cl_mem) col_data, ctx));
   oclk_copy.arg(argIdx++, col_data_offset);
+  oclk_copy.arg(argIdx++, imgNum);
+
   const size_t global_work_size_Copy[3] = { (size_t) padded_width_,
       (size_t) padded_height_, (size_t) channels };
 
@@ -602,7 +605,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
     image_count++;
     mtx.unlock();
 
-    // std::cout <<"gpu image item:" << item << std::endl;
+    std::cout <<"gpu image item:" << item << std::endl;
     for (int_tp g = 0; g < group_; ++g) {
       int_tp bias_offset_ = M_ * g;
       int_tp image_offset = item * bottom_dim_
@@ -625,7 +628,8 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
                   pad_h_,
                   pad_w_,
                   bottom_data,
-                  col_data);
+                  col_data,
+                  1);
         image_offset = 0;
         kernel->arg(argIdx++, WrapHandle((cl_mem) col_data, ctx));
       } else {
@@ -677,6 +681,8 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
 
   cl_int err = 0;
   image_count = 0;
+  if (config->kernelType == 2)
+    config->global_work_size[2] /= numImages;
   std::thread thread_gpu(convolve_gpu_work, this->device_->id(), &ctx, &kernel,
                       group_, channels_, bottom_dim_,
                       top_dim_, width_, height_, output_w_, output_h_,
@@ -689,13 +695,14 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
 
   std::shared_ptr<float> output_cpu(new float[this->top_dim_],
                                std::default_delete<float[]>());
+
   int_tp item = 0;
   while (image_count < num_) {
     mtx.lock();
     item = image_count;
     image_count++;
     mtx.unlock();
-
+    std::cout <<"cpu image item:" << item << std::endl;
     this->forward_cpu_gemm(bottom_data_cpu + item * this->bottom_dim_,
                            weight_cpu, output_cpu.get());
     if (this->bias_term_) {
@@ -705,7 +712,11 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
     greentea_copy<float>(top_dim_, output_cpu.get(), (cl_mem) top_data,
                          item * top_dim_, &ctx);
   }
+
   thread_gpu.join();
+
+  if (config->kernelType == 2)
+    config->global_work_size[2] *= numImages;
   return err;
 }
 
