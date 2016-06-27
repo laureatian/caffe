@@ -589,6 +589,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
                   int_tp pad_w_,
                   int_tp pad_h_,
                   int_tp numImages,
+                  int_tp batch_size,
                   int_tp M_,
                   kernelConfig* config,
                   float* col_data,
@@ -602,7 +603,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
   while (image_count < numImages) {
     mtx.lock();
     item = image_count;
-    image_count++;
+    image_count += batch_size;
     mtx.unlock();
 
     std::cout <<"gpu image item:" << item << std::endl;
@@ -629,7 +630,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
                   pad_w_,
                   bottom_data,
                   col_data,
-                  1);
+                  batch_size);
         image_offset = 0;
         kernel->arg(argIdx++, WrapHandle((cl_mem) col_data, ctx));
       } else {
@@ -681,13 +682,14 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
 
   cl_int err = 0;
   image_count = 0;
+  int_tp batch_size = 16;
   if (config->kernelType == 2)
-    config->global_work_size[2] /= numImages;
+    config->global_work_size[2] /= (numImages/batch_size);
   std::thread thread_gpu(convolve_gpu_work, this->device_->id(), &ctx, &kernel,
                       group_, channels_, bottom_dim_,
                       top_dim_, width_, height_, output_w_, output_h_,
                       kernel_h_, kernel_w_, padded_width_, padded_height_,
-                      pad_w_, pad_h_, numImages, M_, config, col_data,
+                      pad_w_, pad_h_, numImages, batch_size, M_, config, col_data,
                       bottom_data, swizzled_weights, weight, bias_, top_data);
 
   const float* weight_cpu = this->blobs_[0]->cpu_data();
@@ -700,23 +702,25 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
   while (image_count < num_) {
     mtx.lock();
     item = image_count;
-    image_count++;
+    image_count += batch_size;
     mtx.unlock();
     std::cout <<"cpu image item:" << item << std::endl;
-    this->forward_cpu_gemm(bottom_data_cpu + item * this->bottom_dim_,
-                           weight_cpu, output_cpu.get());
-    if (this->bias_term_) {
-      const float* bias_cpu = this->blobs_[1]->cpu_data();
-      this->forward_cpu_bias(output_cpu.get(), bias_cpu);
+    for(int_tp it = item; it < item + batch_size; ++it) {
+      this->forward_cpu_gemm(bottom_data_cpu + it * this->bottom_dim_,
+                             weight_cpu, output_cpu.get());
+      if (this->bias_term_) {
+        const float* bias_cpu = this->blobs_[1]->cpu_data();
+        this->forward_cpu_bias(output_cpu.get(), bias_cpu);
+      }
+      greentea_copy<float>(top_dim_, output_cpu.get(), (cl_mem) top_data,
+                           it * top_dim_, &ctx);
     }
-    greentea_copy<float>(top_dim_, output_cpu.get(), (cl_mem) top_data,
-                         item * top_dim_, &ctx);
   }
 
   thread_gpu.join();
 
   if (config->kernelType == 2)
-    config->global_work_size[2] *= numImages;
+    config->global_work_size[2] *= (numImages/batch_size);
   return err;
 }
 
