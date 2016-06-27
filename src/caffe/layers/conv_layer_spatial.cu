@@ -606,7 +606,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
     image_count += batch_size;
     mtx.unlock();
 
-    std::cout <<"gpu image item:" << item << std::endl;
+    // std::cout <<"gpu image item:" << item << std::endl;
     for (int_tp g = 0; g < group_; ++g) {
       int_tp bias_offset_ = M_ * g;
       int_tp image_offset = item * bottom_dim_
@@ -617,6 +617,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
       int_tp kernel_offset = kernel_h_ * kernel_w_ * (channels_ / group_) * M_
           * g;
 
+      int_tp image_size = std::min(batch_size, numImages - item);
       // Copy image
       if (pad_w_ > 0 || pad_h_ > 0) {
         pad_image(ctx_id, ctx, image_offset,
@@ -630,7 +631,7 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
                   pad_w_,
                   bottom_data,
                   col_data,
-                  batch_size);
+                  image_size);
         image_offset = 0;
         kernel->arg(argIdx++, WrapHandle((cl_mem) col_data, ctx));
       } else {
@@ -646,6 +647,9 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
       kernel->arg(argIdx++, bias_offset_);
       kernel->arg(argIdx++, WrapHandle((cl_mem) top_data, ctx));
       kernel->arg(argIdx++, output_image_offset);
+      int_tp global_size_z = config->global_work_size[2];
+      if (config->kernelType == 2)
+        config->global_work_size[2] = global_size_z / numImages * image_size;
       if (config->use_null_local) {
         err = clEnqueueNDRangeKernel(ctx->get_queue().handle().get(),
                                      kernel->handle().get(), 3,
@@ -660,6 +664,8 @@ cl_int convolve_gpu_work(const int_tp ctx_id,
                                      config->local_work_size, 0, NULL,
                                      NULL);
       }
+      if (config->kernelType == 2)
+        config->global_work_size[2] = global_size_z;
       viennacl::backend::finish();
     }
   }
@@ -683,8 +689,6 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
   cl_int err = 0;
   image_count = 0;
   int_tp batch_size = 16;
-  if (config->kernelType == 2)
-    config->global_work_size[2] /= (numImages/batch_size);
   std::thread thread_gpu(convolve_gpu_work, this->device_->id(), &ctx, &kernel,
                       group_, channels_, bottom_dim_,
                       top_dim_, width_, height_, output_w_, output_h_,
@@ -702,25 +706,20 @@ cl_int ConvolutionLayerSpatial<float>::hybrid_convolve(
   while (image_count < num_) {
     mtx.lock();
     item = image_count;
-    image_count += batch_size;
+    image_count += 1;
     mtx.unlock();
-    std::cout <<"cpu image item:" << item << std::endl;
-    for(int_tp it = item; it < item + batch_size; ++it) {
-      this->forward_cpu_gemm(bottom_data_cpu + it * this->bottom_dim_,
-                             weight_cpu, output_cpu.get());
-      if (this->bias_term_) {
-        const float* bias_cpu = this->blobs_[1]->cpu_data();
-        this->forward_cpu_bias(output_cpu.get(), bias_cpu);
-      }
-      greentea_copy<float>(top_dim_, output_cpu.get(), (cl_mem) top_data,
-                           it * top_dim_, &ctx);
+    // std::cout <<"cpu image item:" << item << std::endl;
+    this->forward_cpu_gemm(bottom_data_cpu + item * this->bottom_dim_,
+                           weight_cpu, output_cpu.get());
+    if (this->bias_term_) {
+      const float* bias_cpu = this->blobs_[1]->cpu_data();
+      this->forward_cpu_bias(output_cpu.get(), bias_cpu);
     }
+    greentea_copy<float>(top_dim_, output_cpu.get(), (cl_mem) top_data,
+                         item * top_dim_, &ctx);
   }
 
   thread_gpu.join();
-
-  if (config->kernelType == 2)
-    config->global_work_size[2] *= (numImages/batch_size);
   return err;
 }
 
