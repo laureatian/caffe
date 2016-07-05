@@ -1,3 +1,4 @@
+#include <string>
 #include <vector>
 
 #include "caffe/filler.hpp"
@@ -12,7 +13,6 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   const Dtype* bottom_data = bottom[0]->gpu_data();
   Dtype* top_data = top[0]->mutable_gpu_data();
   const Dtype* weight = this->blobs_[0]->gpu_data();
-
   if (this->device_->backend() == BACKEND_CUDA) {
 #ifdef USE_CUDA
     if (M_ == 1) {
@@ -36,10 +36,63 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   } else {
 #ifdef USE_GREENTEA
     if (M_ == 1) {
-      greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
+      viennacl::ocl::context &ctx =
+          viennacl::ocl::get_context(this->device_->id());
+      const viennacl::ocl::device &device = ctx.current_device();
+      if (device.vendor().find("Intel") != std::string::npos && (K_%4) == 0) {
+        viennacl::ocl::program &program =
+            (Caffe::Get().GetDevice(this->device_->id(), false))->program();
+        viennacl::ocl::kernel &k = program.get_kernel(CL_KERNEL_SELECT("matvec_mul4"));
+        uint row_size = N_;
+        uint col_size = K_;
+        size_t localsize = 128;
+        size_t globalsize = row_size / 4 * localsize;
+        //size_t globalsize = 128 * localsize;
+
+        uint argId = 0;
+        k.arg(argId++, WrapHandle((cl_mem)weight, &ctx));
+        //k.arg(argId++, cl_uint(row_size));
+        k.arg(argId++, cl_uint(col_size));
+        k.arg(argId++, WrapHandle((cl_mem) bottom_data, &ctx));
+        k.arg(argId++, WrapHandle((cl_mem) top_data, &ctx));
+        k.arg(argId++, viennacl::ocl::local_mem(sizeof(cl_float) * localsize));
+
+        clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
+                                     k.handle().get(), 1,
+                                     NULL,
+                                     &globalsize,
+                                     &localsize, 0, NULL,
+                                     NULL);
+        clFinish(ctx.get_queue().handle().get());
+        if( (row_size % 4) != 0) {
+          viennacl::ocl::kernel &k_1 = program.get_kernel(CL_KERNEL_SELECT("matvec_mul1"));
+          size_t localsize = 128;
+          size_t globalsize = row_size % 4 * localsize;
+          uint row_offset = row_size - (row_size % 4);
+
+          uint argId = 0;
+          k_1.arg(argId++, WrapHandle((cl_mem)weight, &ctx));
+          k_1.arg(argId++, cl_uint(col_size));
+          k_1.arg(argId++, cl_uint(row_offset));
+          k_1.arg(argId++, WrapHandle((cl_mem) bottom_data, &ctx));
+          k_1.arg(argId++, WrapHandle((cl_mem) top_data, &ctx));
+          k_1.arg(argId++, viennacl::ocl::local_mem(sizeof(cl_float) * localsize));
+
+          clEnqueueNDRangeKernel(ctx.get_queue().handle().get(),
+                                       k_1.handle().get(), 1,
+                                       NULL,
+                                       &globalsize,
+                                       &localsize, 0, NULL,
+                                       NULL);
+          clFinish(ctx.get_queue().handle().get());
+
+        }
+      } else {
+        greentea_gpu_gemv<Dtype>(this->device_->id(), CblasNoTrans, N_,
                                K_, (Dtype) 1., (cl_mem) weight, 0,
                                (cl_mem) bottom_data, 0, (Dtype) 0.,
                                (cl_mem) top_data, 0);
+        }
       if (bias_term_)
         greentea_gpu_axpy<Dtype>(this->device_->id(), N_,
                                  bias_multiplier_.cpu_data()[0],
